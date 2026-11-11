@@ -82,3 +82,39 @@ describe('statement parser layouts', () => {
     expect(drafts.map((d) => d.transactionDate)).toEqual(['2026-10-14', '2026-10-14', '2026-10-15']);
   });
 });
+
+describe('statement parser: noise and discounts', () => {
+  it('skips interest/credit text and percentages', () => {
+    const { drafts } = parseStatement([
+      { text: 'קרדיט % (משתנה) 17.719% 6 רבעוני 0% או', confidence: 90 },
+      { text: 'מסגרת 25,000.00 ₪', confidence: 90 },
+      { text: '14/10/2026 שופרסל 245.90', confidence: 90 },
+    ], '2026-11-11');
+    expect(drafts.map((d) => d.amountAgorot)).toEqual([24590]);
+  });
+  it('a discount line attaches to the purchase above it as the net amount', () => {
+    const { drafts } = parseStatement([
+      { text: '14/10/2026 סופר פארם 120.00', confidence: 90 },
+      { text: 'הנחה 20.00', confidence: 90 },
+      { text: '15/10/2026 פז 50.00', confidence: 90 },
+    ], '2026-11-11');
+    expect(drafts.map((d) => d.amountAgorot)).toEqual([10000, 5000]);
+    expect(drafts[0].uncertain).toContain('amountAgorot');
+  });
+  it('purchase and discount on the same line give the net amount', () => {
+    const { drafts } = parseStatement([{ text: '14/10/2026 סופר פארם 120.00 הנחה 20.00', confidence: 90 }], '2026-11-11');
+    expect(drafts[0].amountAgorot).toBe(10000);
+  });
+  it('deal total and charge on one line still give the charge', () => {
+    const { drafts } = parseStatement([{ text: '14/10/2026 ACE 600.00 100.00 תשלום 1 מתוך 6', confidence: 90 }], '2026-11-11');
+    expect(drafts[0].amountAgorot).toBe(10000);
+  });
+  it('dateless and implausible rows are flagged so they start unselected', () => {
+    const { drafts } = parseStatement([
+      { text: '14/10/2026 שופרסל 245.90', confidence: 90 },
+      { text: 'משהו אחר 35.00', confidence: 90 },
+      { text: '15/10/2026 משהו 85,000.00', confidence: 90 },
+    ], '2026-11-11');
+    expect(drafts.map((d) => !!d.suspicious)).toEqual([false, true, true]);
+  });
+});

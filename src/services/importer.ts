@@ -28,6 +28,7 @@ export interface ReviewRow {
   createFuture: boolean;
   uncertain: string[];
   rawText: string;
+  suspicious?: string;
   duplicate?: { existingId: string; kind: MatchKind; reasons: string[]; summary: string; action: DupAction };
   loanMatch?: { loanId: string; loanName: string; occurrenceDate: ISODate; action: 'merge' | 'keep' };
 }
@@ -49,7 +50,7 @@ export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: 
     return {
       key: `${imageIndex}-${i}-${uid()}`,
       imageIndex,
-      include: true,
+      include: !d.suspicious,
       transactionDate: d.transactionDate ?? '',
       merchant: d.merchant,
       amountAgorot: d.amountAgorot ?? null,
@@ -61,6 +62,7 @@ export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: 
       createFuture: !!(d.installmentIndex && d.installmentCount && d.installmentIndex < d.installmentCount),
       uncertain: d.uncertain,
       rawText: d.rawText,
+      suspicious: d.suspicious,
     };
   });
 }

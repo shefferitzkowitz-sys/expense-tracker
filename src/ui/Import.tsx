@@ -115,6 +115,7 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
   const selected = rows.filter((r) => r.include);
   const invalidCount = selected.filter((r) => !rowIsValid(r)).length;
   const dupCount = rows.filter((r) => r.duplicate || r.loanMatch).length;
+  const suspiciousOff = rows.filter((r) => r.suspicious && !r.include).length;
   const selectedTotal = selected.reduce((s, r) => s + (r.amountAgorot ?? 0), 0);
 
   const save = async () => {
@@ -209,6 +210,7 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
               <span>{selected.length} שורות נבחרו · {formatILS(selectedTotal)}</span>
               {dupCount > 0 && <span className="badge warn">{dupCount} התאמות לבדיקה</span>}
             </div>
+            {suspiciousOff > 0 && <div className="hint">{suspiciousOff} שורות לא סומנו כי הן לא נראות כמו עסקה. אפשר לסמן אותן ידנית.</div>}
             {invalidCount > 0 && <div className="alert warn">יש {invalidCount} שורות עם שדות חסרים. יש להשלים או לבטל את סימונן.</div>}
             {error && <div className="alert error">{error}</div>}
             <div className="row-actions">
@@ -253,6 +255,7 @@ function ReviewRowEditor({ row, data, onChange, onRemove }: { row: ReviewRow; da
       <div className="review-row-top">
         <label className="check"><input type="checkbox" checked={row.include} onChange={(e) => onChange({ include: e.target.checked })} /> לשמור</label>
         {row.uncertain.length > 0 && <span className="badge warn">לבדיקה</span>}
+        {row.suspicious && !row.include && <span className="badge">לא סומן: {row.suspicious}</span>}
         <button className="link danger" onClick={onRemove}>מחיקה</button>
       </div>
       {row.duplicate && (

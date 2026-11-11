@@ -17,6 +17,8 @@ export interface Draft {
   uncertain: string[]; // field names that need review
   /** Category text from the statement (e.g. a card company's "sector" column), used only as a suggestion. */
   categoryHint?: string;
+  /** Why this row looks unlikely to be a real transaction; such rows start unselected in the review. */
+  suspicious?: string;
 }
 
 const HEB_MONTHS: Record<string, number> = {
@@ -31,6 +33,12 @@ const AMOUNT = /-?₪?\s?-?\d{1,3}(?:,\d{3})*\.\d{1,2}(?!\d)-?|-?₪\s?\d+(?:\.\
 export const INSTALLMENT = /(?:תשלום\s*)?(\d{1,2})\s*(?:מתוך|מ-|\/)\s*(\d{1,2})(?:\s*תשלומים)?/;
 export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב)/;
 const NOISE = /^(סה["״]?כ|סך הכל|יתרה|מסגרת|עסקאות|פירוט|חיובים|בחיוב הקרוב|ש["״]?ח)(?=\s|$)/;
+/** Words that mark account or offer text (interest, credit line, balances), never a purchase. */
+const NON_TX = /(ריבית|קרדיט|משתנה|רבעוני|מסגרת|יתרת|יתרה|ניצול|זמינה|נקודות|סה["״]?כ|סך הכל|לתשלום|תקרת|אשראי זמין)/;
+const PERCENT = /-?\d+(?:[.,]\d+)?\s*%|%\s*-?\d+(?:[.,]\d+)?/g;
+const DISCOUNT = /(הנחה|הנחת|הטבה|החזר כספי|קשבק|cashback)/i;
+/** A single statement line above this is far more likely a misread (limit, balance) than a purchase. */
+const MAX_PLAUSIBLE = 2_000_000; // ₪20,000 in agorot
 
 /** Infers the year of a dd/mm date with no year: the most recent such date not after today. */
 function inferYear(day: number, month: number, today: ISODate): ISODate | null {
@@ -106,8 +114,28 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
       text = text.replace(inst[0], ' ');
     }
 
+    const hadPercent = PERCENT.test(text);
+    PERCENT.lastIndex = 0;
+    if (hadPercent || NON_TX.test(text)) {
+      // Interest rates, credit lines and balances: not a transaction.
+      if (!date || hadPercent) continue;
+    }
+    text = text.replace(PERCENT, ' ');
+
     const amounts = [...text.matchAll(AMOUNT)].map((m) => m[0]);
     const parsed = amounts.map((a) => parseAmount(a)).filter((a): a is number => a != null);
+    const isDiscount = DISCOUNT.test(text);
+
+    if (isDiscount && parsed.length === 1) {
+      // A discount on its own line belongs to the purchase above it: keep the purchase at its net amount.
+      const prev = drafts[drafts.length - 1];
+      if (prev && prev.amountAgorot != null && Math.abs(parsed[0]) < Math.abs(prev.amountAgorot)) {
+        prev.amountAgorot = prev.amountAgorot - Math.abs(parsed[0]) * Math.sign(prev.amountAgorot);
+        prev.rawText += `\n${line.text}`;
+        if (!prev.uncertain.includes('amountAgorot')) prev.uncertain.push('amountAgorot');
+      }
+      continue;
+    }
 
     if (parsed.length === 0) {
       const prevDraft = drafts[drafts.length - 1];
@@ -140,8 +168,20 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
 
     for (const a of amounts) text = text.replace(a, ' ');
     const merchant = cleanMerchant(text.replace(/₪|ש["״]ח/g, ' '));
-    // When two amounts appear (deal total and charge), the charge is the smaller absolute value.
-    const amountAgorot = parsed.length > 1 ? parsed.reduce((m, v) => (Math.abs(v) < Math.abs(m) ? v : m)) : parsed[0];
+    let amountAgorot = parsed[0];
+    if (parsed.length > 1) {
+      const abs = parsed.map(Math.abs);
+      const big = parsed[abs.indexOf(Math.max(...abs))];
+      const small = parsed[abs.indexOf(Math.min(...abs))];
+      if (isDiscount && Math.abs(small) * 2 < Math.abs(big)) {
+        // "purchase … discount": the charge is the purchase minus the discount.
+        amountAgorot = big - Math.abs(small) * Math.sign(big);
+      } else {
+        // Deal total and charge (or price after discount): the charge is the smaller absolute value.
+        amountAgorot = small;
+      }
+    }
+    if (amountAgorot === 0) continue;
 
     const uncertain: string[] = [];
     if (line.confidence < 70) uncertain.push('all');
@@ -160,8 +200,15 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
       rawText: line.text,
       uncertain,
     };
+    if (Math.abs(amountAgorot) > MAX_PLAUSIBLE) draft.suspicious = 'סכום גבוה במיוחד';
     if (date) ownDate.add(draft);
     drafts.push(draft);
+  }
+
+  // Rows that never got a date (and the screenshot does have dated rows) are usually stray text.
+  const anyDated = drafts.some((d) => d.transactionDate);
+  for (const d of drafts) {
+    if (!d.transactionDate && (anyDated || d.merchant.length < 2)) d.suspicious ??= 'לא נמצא תאריך';
   }
 
   if (explicitChargeDate) for (const d of drafts) d.explicitChargeDate = explicitChargeDate;
