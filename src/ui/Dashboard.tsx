@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { chargeLines, summarizeMonth } from '../lib/analytics';
 import { formatDate, monthLabel, type MonthKey } from '../lib/dates';
-import { UNCATEGORIZED, type ChargeLine } from '../lib/types';
+import { PAYMENT_METHODS, UNCATEGORIZED, type ChargeLine } from '../lib/types';
 import { Bars, categoryName, Empty, Money, MonthPicker, Sheet, sourceName, StatusBadge } from './common';
 import type { AppData } from './useData';
 
@@ -17,7 +17,7 @@ export function LinesList({ lines, data, onOpen }: { lines: ChargeLine[]; data: 
               <div className="tx-main">
                 <span className="tx-merchant">{l.merchant || 'ללא תיאור'}</span>
                 <span className="tx-meta">
-                  {l.kind === 'loan' ? 'הלוואה' : sourceName(data.cards, l.sourceType === 'manual' ? 'manual' : l.cardId ?? 'manual')}
+                  {l.kind === 'loan' ? 'הלוואה' : l.sourceType === 'manual' && l.paymentMethod ? PAYMENT_METHODS[l.paymentMethod] : sourceName(data.cards, l.sourceType === 'manual' ? 'manual' : l.cardId ?? 'manual')}
                   {' · '}חיוב {formatDate(l.chargeDate)}
                   {t?.installmentIndex ? ` · תשלום ${t.installmentIndex}/${t.installmentCount}` : ''}
                   {' · '}{categoryName(data.categories, l.categoryId)}
@@ -35,7 +35,7 @@ export function LinesList({ lines, data, onOpen }: { lines: ChargeLine[]; data: 
   );
 }
 
-export function Dashboard({ data, month, setMonth, onOpenLine }: { data: AppData; month: MonthKey; setMonth: (m: MonthKey) => void; onOpenLine: (l: ChargeLine) => void }) {
+export function Dashboard({ data, month, setMonth, onOpenLine, onNew }: { data: AppData; month: MonthKey; setMonth: (m: MonthKey) => void; onOpenLine: (l: ChargeLine) => void; onNew: () => void }) {
   const lines = useMemo(() => chargeLines(data.transactions, data.loans, data.overrides, month, month), [data, month]);
   const s = useMemo(() => summarizeMonth(lines, month), [lines, month]);
   const [drill, setDrill] = useState<{ title: string; filter: (l: ChargeLine) => boolean } | null>(null);
@@ -98,6 +98,7 @@ export function Dashboard({ data, month, setMonth, onOpenLine }: { data: AppData
           <LinesList lines={lines.filter(drill.filter)} data={data} onOpen={(l) => { setDrill(null); onOpenLine(l); }} />
         </Sheet>
       )}
+      <button className="fab" onClick={onNew} aria-label="הוצאה חדשה">+</button>
     </div>
   );
 }

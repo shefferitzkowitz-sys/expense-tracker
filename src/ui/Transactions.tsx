@@ -28,7 +28,7 @@ export function Transactions({ data, month, setMonth, onOpenLine, onNew }: { dat
         <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="מקור">
           <option value="all">כל המקורות</option>
           {data.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          <option value="manual">הוצאות ידניות</option>
+          <option value="manual">בנק / מזומן</option>
           <option value="loan">הלוואות</option>
         </select>
         <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="קטגוריה">

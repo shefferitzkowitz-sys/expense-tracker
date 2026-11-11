@@ -2,8 +2,8 @@ import { db, nowIso, uid } from '../db';
 import { installmentChargeDate, predictChargeDate } from '../lib/billing';
 import { buildInstallments } from '../lib/installments';
 import { normalizeMerchant } from '../lib/merchant';
-import { todayLocal, type ISODate } from '../lib/dates';
-import type { ChargeDateSource, Transaction } from '../lib/types';
+import { addMonths, dayInMonth, monthOf, todayLocal, type ISODate } from '../lib/dates';
+import type { ChargeDateSource, PaymentMethod, Transaction } from '../lib/types';
 
 export interface NewTx {
   sourceType: 'card' | 'manual';
@@ -16,6 +16,9 @@ export interface NewTx {
   installmentCount?: number; // >1 creates a full installment plan, amount = total
   note?: string;
   rememberCategory?: boolean;
+  paymentMethod?: PaymentMethod;
+  /** Non-card only: >1 creates this many monthly charges of the full amount (a standing order). */
+  repeatMonths?: number;
 }
 
 export async function billingDayOf(cardId?: string): Promise<number | undefined> {
@@ -64,6 +67,21 @@ export async function createTransaction(input: NewTx): Promise<string[]> {
           createdAt: now, updatedAt: now,
         });
       }
+    } else if (input.sourceType === 'manual' && input.repeatMonths && input.repeatMonths > 1) {
+      const groupId = uid();
+      const first = input.chargeDate ?? input.transactionDate;
+      const day = Number(first.slice(8, 10));
+      for (let k = 0; k < input.repeatMonths; k++) {
+        const chargeDate = dayInMonth(addMonths(monthOf(first), k), day);
+        const id = uid();
+        ids.push(id);
+        await db.transactions.add({
+          id, sourceType: 'manual', paymentMethod: input.paymentMethod, merchant: input.merchant,
+          transactionDate: k === 0 ? input.transactionDate : chargeDate, amountAgorot: input.amountAgorot, categoryId: input.categoryId,
+          chargeDate, chargeDateSource: 'manual', status: chargeDate <= today ? 'confirmed' : 'predicted',
+          recurringGroupId: groupId, note: input.note, createdAt: now, updatedAt: now,
+        });
+      }
     } else {
       const { chargeDate, source } = resolveChargeDate(input.sourceType, input.transactionDate, billingDay, input.chargeDate);
       const id = uid();
@@ -71,7 +89,7 @@ export async function createTransaction(input: NewTx): Promise<string[]> {
       await db.transactions.add({
         id, sourceType: input.sourceType, cardId: input.cardId, merchant: input.merchant, transactionDate: input.transactionDate,
         amountAgorot: input.amountAgorot, categoryId: input.categoryId, chargeDate, chargeDateSource: source, status: 'confirmed',
-        note: input.note, createdAt: now, updatedAt: now,
+        paymentMethod: input.sourceType === 'manual' ? input.paymentMethod : undefined, note: input.note, createdAt: now, updatedAt: now,
       });
     }
     if (input.rememberCategory) await rememberMerchantCategory(input.merchant, input.categoryId);
@@ -87,7 +105,11 @@ export async function deleteTransaction(id: string, wholeGroup = false): Promise
   const t = await db.transactions.get(id);
   if (!t) return;
   if (wholeGroup && t.installmentGroupId) await db.transactions.where('installmentGroupId').equals(t.installmentGroupId).delete();
-  else await db.transactions.delete(id);
+  else if (wholeGroup && t.recurringGroupId) {
+    // Only this charge and the ones after it: past months of a standing order really happened.
+    const g = t.recurringGroupId;
+    await db.transactions.filter((x) => x.recurringGroupId === g && x.chargeDate >= t.chargeDate).delete();
+  } else await db.transactions.delete(id);
 }
 
 /** After a card's billing day changes, only predicted charge dates are recalculated; explicit/manual ones stay. */

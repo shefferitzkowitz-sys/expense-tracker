@@ -9,6 +9,7 @@ export function transactionLine(t: Transaction): ChargeLine {
     refId: t.id,
     sourceType: t.sourceType,
     cardId: t.cardId,
+    paymentMethod: t.paymentMethod,
     merchant: t.merchant,
     chargeDate: t.chargeDate,
     amountAgorot: t.amountAgorot,

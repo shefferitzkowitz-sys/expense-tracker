@@ -104,7 +104,7 @@ export function categoryName(categories: Category[], id?: string): string {
 
 export function sourceName(cards: Card[], key: string): string {
   if (key === 'loan') return 'הלוואות';
-  if (key === 'manual') return 'הוצאות ידניות';
+  if (key === 'manual') return 'בנק / מזומן';
   return cards.find((c) => c.id === key)?.name ?? 'כרטיס';
 }
 

@@ -5,7 +5,7 @@ import { formatDate, isValidDate, todayLocal } from '../lib/dates';
 import { suggestCategory } from '../lib/merchant';
 import { formatILS, splitEvenly } from '../lib/money';
 import { loanAmountOn } from '../lib/loans';
-import type { ChargeLine, Transaction } from '../lib/types';
+import { PAYMENT_METHODS, type ChargeLine, type PaymentMethod, type Transaction } from '../lib/types';
 import { createTransaction, deleteTransaction, rememberMerchantCategory, updateTransaction } from '../services/transactions';
 import { AmountInput, CategorySelect, Field, IntInput, Sheet } from './common';
 import type { AppData } from './useData';
@@ -26,6 +26,10 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
   const [chargeDate, setChargeDate] = useState(existing?.chargeDate ?? '');
   const [status, setStatus] = useState(existing?.status ?? 'confirmed');
   const [note, setNote] = useState(existing?.note ?? '');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(existing?.paymentMethod ?? 'transfer');
+  const [repeat, setRepeat] = useState(false);
+  const [repeatInput, setRepeatInput] = useState<number | null>(12);
+  const repeatMonths = repeat && repeatInput != null && repeatInput > 1 ? Math.min(repeatInput, 120) : 1;
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -54,7 +58,8 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
     if (existing) {
       const isPredictedSource = !manualCharge;
       await updateTransaction(existing.id, {
-        sourceType, cardId: sourceType === 'card' ? cardId : undefined, merchant: merchant.trim(), transactionDate, amountAgorot: amount,
+        sourceType, cardId: sourceType === 'card' ? cardId : undefined, paymentMethod: sourceType === 'manual' ? paymentMethod : undefined,
+        merchant: merchant.trim(), transactionDate, amountAgorot: amount,
         categoryId, chargeDate: existing.installmentGroupId && isPredictedSource ? existing.chargeDate : effectiveCharge,
         chargeDateSource: isPredictedSource ? 'predicted' : 'manual', status, note: note || undefined,
       });
@@ -62,7 +67,8 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
     } else {
       await createTransaction({
         sourceType, cardId: sourceType === 'card' ? cardId : undefined, merchant: merchant.trim(), transactionDate, amountAgorot: amount,
-        categoryId, chargeDate: manualCharge ? chargeDate : undefined, installmentCount: installments > 1 ? installments : undefined,
+        categoryId, chargeDate: manualCharge ? chargeDate : undefined, installmentCount: sourceType === 'card' && installments > 1 ? installments : undefined,
+        paymentMethod: sourceType === 'manual' ? paymentMethod : undefined, repeatMonths: sourceType === 'manual' ? repeatMonths : undefined,
         note: note || undefined, rememberCategory: categoryTouched && remember,
       });
     }
@@ -76,7 +82,7 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
 
   return (
     <Sheet
-      title={existing ? 'עריכת עסקה' : 'עסקה חדשה'}
+      title={existing ? 'עריכת הוצאה' : 'הוצאה חדשה'}
       onClose={onClose}
       footer={
         <>
@@ -90,16 +96,24 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
         <div className="alert warn">
           <div>למחוק את העסקה?</div>
           <div className="row-actions">
-            <button className="btn danger" onClick={() => remove(false)}>{existing.installmentGroupId ? 'רק תשלום זה' : 'מחיקה'}</button>
+            <button className="btn danger" onClick={() => remove(false)}>{existing.installmentGroupId ? 'רק תשלום זה' : existing.recurringGroupId ? 'רק החודש הזה' : 'מחיקה'}</button>
             {existing.installmentGroupId && <button className="btn danger" onClick={() => remove(true)}>כל התשלומים</button>}
+            {existing.recurringGroupId && <button className="btn danger" onClick={() => remove(true)}>החודש הזה וכל הבאים</button>}
             <button className="btn ghost" onClick={() => setConfirmDelete(false)}>ביטול</button>
           </div>
         </div>
       )}
       <div className="segmented" role="tablist">
         <button className={sourceType === 'card' ? 'on' : ''} onClick={() => setSourceType('card')} disabled={!activeCards.length}>כרטיס אשראי</button>
-        <button className={sourceType === 'manual' ? 'on' : ''} onClick={() => setSourceType('manual')}>הוצאה ידנית</button>
+        <button className={sourceType === 'manual' ? 'on' : ''} onClick={() => setSourceType('manual')}>בנק / מזומן</button>
       </div>
+      {sourceType === 'manual' && (
+        <Field label="אמצעי תשלום" htmlFor="f-pay">
+          <select id="f-pay" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
+            {(Object.keys(PAYMENT_METHODS) as PaymentMethod[]).map((k) => <option key={k} value={k}>{PAYMENT_METHODS[k]}</option>)}
+          </select>
+        </Field>
+      )}
       {sourceType === 'card' && (
         <Field label="כרטיס" htmlFor="f-card">
           <select id="f-card" value={cardId} onChange={(e) => setCardId(e.target.value)}>
@@ -114,15 +128,26 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
         <Field label={installments > 1 ? 'סכום העסקה הכולל' : 'סכום'} htmlFor="f-amount">
           <AmountInput id="f-amount" value={amount} onChange={setAmount} />
         </Field>
-        <Field label="תאריך עסקה" htmlFor="f-date">
+        <Field label={sourceType === 'manual' ? 'תאריך' : 'תאריך עסקה'} htmlFor="f-date">
           <input id="f-date" type="date" value={transactionDate} onChange={(e) => setTransactionDate(e.target.value)} />
         </Field>
       </div>
-      {!existing && (
+      {!existing && sourceType === 'manual' && (
+        <>
+          <label className="check"><input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} /> חוזר כל חודש (למשל הוראת קבע)</label>
+          {repeat && (
+            <Field label="למשך כמה חודשים" htmlFor="f-repeat" hint={repeatMonths > 1 && amount != null ? `${repeatMonths} חיובים של ${formatILS(amount)}, באותו יום בכל חודש. חודשים עתידיים מסומנים כחזויים.` : undefined}>
+              <IntInput id="f-repeat" value={repeatInput} onChange={setRepeatInput} max={120} placeholder="12" />
+            </Field>
+          )}
+        </>
+      )}
+      {!existing && sourceType === 'card' && (
         <Field label="מספר תשלומים" htmlFor="f-inst" hint={installments > 1 && amount != null ? `${installments} חיובים של כ-${formatILS(splitEvenly(amount, installments)[0])}; השארית בתשלום האחרון` : undefined}>
           <IntInput id="f-inst" value={instInput} onChange={setInstInput} max={36} placeholder="1" />
         </Field>
       )}
+      {existing?.recurringGroupId && <div className="hint">הוצאה חודשית חוזרת</div>}
       {existing?.installmentGroupId && <div className="hint">תשלום {existing.installmentIndex} מתוך {existing.installmentCount}{existing.totalAgorot ? ` · עסקה כוללת ${formatILS(existing.totalAgorot)}` : ''}</div>}
       <Field label="קטגוריה" htmlFor="f-cat">
         <CategorySelect id="f-cat" categories={data.categories} value={categoryId} onChange={(v) => { setCategoryId(v); setCategoryTouched(true); }} />

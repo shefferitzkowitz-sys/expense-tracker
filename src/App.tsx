@@ -64,7 +64,7 @@ export default function App() {
           <div className="page"><p className="muted">טוען…</p></div>
         ) : (
           <>
-            {tab === 'dashboard' && <Dashboard data={data} month={month} setMonth={setMonth} onOpenLine={setOpenLine} />}
+            {tab === 'dashboard' && <Dashboard data={data} month={month} setMonth={setMonth} onOpenLine={setOpenLine} onNew={() => setNewTx(true)} />}
             {tab === 'analysis' && <Analysis data={data} />}
             {tab === 'transactions' && <Transactions data={data} month={month} setMonth={setMonth} onOpenLine={setOpenLine} onNew={() => setNewTx(true)} />}
             {tab === 'import' && <Import data={data} goSettings={() => go('settings')} />}

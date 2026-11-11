@@ -2,6 +2,9 @@ import type { Agorot } from './money';
 import type { ISODate } from './dates';
 
 export type SourceType = 'card' | 'manual';
+/** How a non-card expense was paid. */
+export type PaymentMethod = 'transfer' | 'debit' | 'cash' | 'other';
+export const PAYMENT_METHODS: Record<PaymentMethod, string> = { transfer: 'העברה בנקאית', debit: 'הוראת קבע / חיוב מהבנק', cash: 'מזומן', other: 'אחר' };
 export type TxStatus = 'predicted' | 'confirmed' | 'excluded';
 export type ChargeDateSource = 'predicted' | 'explicit' | 'manual';
 
@@ -36,6 +39,9 @@ export interface Transaction {
   installmentIndex?: number;
   installmentCount?: number;
   importBatchId?: string;
+  paymentMethod?: PaymentMethod;
+  /** Monthly repeats of the same non-card expense (e.g. a standing order) share this id. */
+  recurringGroupId?: string;
   note?: string;
   createdAt: string;
   updatedAt: string;
@@ -94,6 +100,7 @@ export interface ChargeLine {
   occurrenceDate?: ISODate;
   sourceType: SourceType | 'loan';
   cardId?: string;
+  paymentMethod?: PaymentMethod;
   merchant: string;
   chargeDate: ISODate;
   amountAgorot: Agorot;
