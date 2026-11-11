@@ -7,7 +7,7 @@ import { formatILS, splitEvenly } from '../lib/money';
 import { loanAmountOn } from '../lib/loans';
 import type { ChargeLine, Transaction } from '../lib/types';
 import { createTransaction, deleteTransaction, rememberMerchantCategory, updateTransaction } from '../services/transactions';
-import { AmountInput, CategorySelect, Field, Sheet } from './common';
+import { AmountInput, CategorySelect, Field, IntInput, Sheet } from './common';
 import type { AppData } from './useData';
 
 export function TxForm({ data, existing, onClose }: { data: AppData; existing?: Transaction; onClose: () => void }) {
@@ -20,7 +20,8 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
   const [categoryId, setCategoryId] = useState<string | undefined>(existing?.categoryId);
   const [categoryTouched, setCategoryTouched] = useState(false);
   const [remember, setRemember] = useState(true);
-  const [installments, setInstallments] = useState(1);
+  const [instInput, setInstInput] = useState<number | null>(1);
+  const installments = instInput != null && instInput >= 1 ? instInput : 1;
   const [manualCharge, setManualCharge] = useState(existing ? existing.chargeDateSource !== 'predicted' : false);
   const [chargeDate, setChargeDate] = useState(existing?.chargeDate ?? '');
   const [status, setStatus] = useState(existing?.status ?? 'confirmed');
@@ -119,7 +120,7 @@ export function TxForm({ data, existing, onClose }: { data: AppData; existing?: 
       </div>
       {!existing && (
         <Field label="מספר תשלומים" htmlFor="f-inst" hint={installments > 1 && amount != null ? `${installments} חיובים של כ-${formatILS(splitEvenly(amount, installments)[0])}; השארית בתשלום האחרון` : undefined}>
-          <input id="f-inst" type="number" min={1} max={36} value={installments} onChange={(e) => setInstallments(Math.max(1, Math.min(36, Number(e.target.value) || 1)))} />
+          <IntInput id="f-inst" value={instInput} onChange={setInstInput} max={36} placeholder="1" />
         </Field>
       )}
       {existing?.installmentGroupId && <div className="hint">תשלום {existing.installmentIndex} מתוך {existing.installmentCount}{existing.totalAgorot ? ` · עסקה כוללת ${formatILS(existing.totalAgorot)}` : ''}</div>}

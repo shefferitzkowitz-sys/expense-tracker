@@ -63,6 +63,29 @@ export function AmountInput({ value, onChange, id, invalid }: { value: number | 
   );
 }
 
+/** Whole-number field that can be cleared while typing (an empty field is null, never 0). */
+export function IntInput({ value, onChange, id, max, invalid, placeholder }: { value: number | null | undefined; onChange: (n: number | null) => void; id?: string; max?: number; invalid?: boolean; placeholder?: string }) {
+  return (
+    <input
+      id={id}
+      className={invalid ? 'invalid' : undefined}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      dir="ltr"
+      autoComplete="off"
+      placeholder={placeholder}
+      value={value == null ? '' : String(value)}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+        if (digits === '') return onChange(null);
+        const n = Number(digits);
+        onChange(max != null ? Math.min(n, max) : n);
+      }}
+    />
+  );
+}
+
 export function CategorySelect({ categories, value, onChange, id, allowEmptyLabel = 'לא מסווג' }: { categories: Category[]; value?: string; onChange: (id?: string) => void; id?: string; allowEmptyLabel?: string }) {
   return (
     <select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)}>

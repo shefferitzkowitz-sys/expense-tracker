@@ -7,7 +7,7 @@ import { addMonths, monthOf } from '../lib/dates';
 import type { Card, Category, Loan } from '../lib/types';
 import { backupCounts, exportBackup, isEncryptedBackup, readBackup, restoreReplace, saveBackupFile, type PlainBackup } from '../services/backup';
 import { deleteCategory, recomputePredictedChargeDates } from '../services/transactions';
-import { AmountInput, categoryName, CategorySelect, Field, Money, Sheet } from './common';
+import { AmountInput, categoryName, CategorySelect, Field, IntInput, Money, Sheet } from './common';
 import type { AppData } from './useData';
 
 export function Settings({ data }: { data: AppData }) {
@@ -58,13 +58,13 @@ export function Settings({ data }: { data: AppData }) {
 
 function CardForm({ card, onClose }: { card?: Card; onClose: () => void }) {
   const [name, setName] = useState(card?.name ?? '');
-  const [day, setDay] = useState(card?.billingDay ?? 10);
+  const [day, setDay] = useState<number | null>(card?.billingDay ?? 10);
   const [active, setActive] = useState(card?.active ?? true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const save = async () => {
     if (!name.trim()) return setError('חסר כינוי לכרטיס');
-    if (!(day >= 1 && day <= 31)) return setError('יום חיוב בין 1 ל-31');
+    if (day == null || !(day >= 1 && day <= 31)) return setError('יום חיוב בין 1 ל-31');
     if (card) {
       await db.cards.update(card.id, { name: name.trim(), billingDay: day, active });
       if (day !== card.billingDay) {
@@ -88,8 +88,8 @@ function CardForm({ card, onClose }: { card?: Card; onClose: () => void }) {
       {error && <div className="alert error">{error}</div>}
       {msg && <div className="alert info">{msg}</div>}
       <Field label="כינוי" htmlFor="c-name"><input id="c-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="למשל: ויזה כאל" /></Field>
-      <Field label="יום חיוב בחודש" htmlFor="c-day" hint={day > 28 ? 'בחודשים קצרים החיוב יחושב ליום האחרון בחודש.' : 'עסקה לפני יום החיוב תחויב באותו חודש; ביום החיוב או אחריו, בחודש הבא.'}>
-        <input id="c-day" type="number" min={1} max={31} value={day} onChange={(e) => setDay(Number(e.target.value))} />
+      <Field label="יום חיוב בחודש" htmlFor="c-day" hint={day != null && day > 28 ? 'בחודשים קצרים החיוב יחושב ליום האחרון בחודש.' : 'עסקה לפני יום החיוב תחויב באותו חודש; ביום החיוב או אחריו, בחודש הבא.'}>
+        <IntInput id="c-day" value={day} onChange={setDay} max={31} placeholder="1–31" />
       </Field>
       <label className="check"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> פעיל</label>
       <p className="hint">אין צורך במספר כרטיס.</p>
@@ -100,7 +100,7 @@ function CardForm({ card, onClose }: { card?: Card; onClose: () => void }) {
 function LoanForm({ data, loan, onClose }: { data: AppData; loan?: Loan; onClose: () => void }) {
   const [name, setName] = useState(loan?.name ?? '');
   const [amount, setAmount] = useState<number | null>(loan?.monthlyAmountAgorot ?? null);
-  const [day, setDay] = useState(loan?.billingDay ?? 1);
+  const [day, setDay] = useState<number | null>(loan?.billingDay ?? null);
   const [start, setStart] = useState(loan?.startDate ?? todayLocal());
   const [end, setEnd] = useState(loan?.endDate ?? '');
   const [categoryId, setCategoryId] = useState(loan?.categoryId);
@@ -110,7 +110,7 @@ function LoanForm({ data, loan, onClose }: { data: AppData; loan?: Loan; onClose
   const save = async () => {
     if (!name.trim()) return setError('חסר שם');
     if (amount == null || amount <= 0) return setError('חסר החזר חודשי');
-    if (!(day >= 1 && day <= 31)) return setError('יום חיוב בין 1 ל-31');
+    if (day == null || !(day >= 1 && day <= 31)) return setError('יום חיוב בין 1 ל-31');
     if (!isValidDate(start)) return setError('תאריך התחלה לא תקין');
     if (end && (!isValidDate(end) || end < start)) return setError('תאריך סיום לא תקין');
     const rec = { name: name.trim(), monthlyAmountAgorot: amount, billingDay: day, startDate: start, endDate: end || undefined, categoryId, active };
@@ -134,7 +134,7 @@ function LoanForm({ data, loan, onClose }: { data: AppData; loan?: Loan; onClose
       <Field label="שם" htmlFor="l-name"><input id="l-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="למשל: הלוואת רכב" /></Field>
       <div className="grid2">
         <Field label="החזר חודשי" htmlFor="l-amount"><AmountInput id="l-amount" value={amount} onChange={setAmount} /></Field>
-        <Field label="יום חיוב" htmlFor="l-day"><input id="l-day" type="number" min={1} max={31} value={day} onChange={(e) => setDay(Number(e.target.value))} /></Field>
+        <Field label="יום חיוב" htmlFor="l-day"><IntInput id="l-day" value={day} onChange={setDay} max={31} placeholder="1–31" /></Field>
       </div>
       <div className="grid2">
         <Field label="תאריך התחלה" htmlFor="l-start"><input id="l-start" type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>

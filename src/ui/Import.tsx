@@ -5,7 +5,7 @@ import { parseStatement } from '../lib/ocrParser';
 import { formatILS } from '../lib/money';
 import { annotateDuplicates, draftsToRows, rowIsValid, saveImport, type ReviewRow } from '../services/importer';
 import { recognizeImage } from '../services/ocr';
-import { AmountInput, CategorySelect, Empty, Field } from './common';
+import { AmountInput, CategorySelect, Empty, Field, IntInput } from './common';
 import type { AppData } from './useData';
 
 interface Img {
@@ -265,10 +265,10 @@ function ReviewRowEditor({ row, data, onChange, onRemove }: { row: ReviewRow; da
       </div>
       <div className="grid2">
         <Field label="תשלום מספר">
-          <input type="number" min={1} max={36} value={row.installmentIndex ?? ''} onChange={(e) => onChange({ installmentIndex: e.target.value ? Number(e.target.value) : undefined })} />
+          <IntInput value={row.installmentIndex} max={36} onChange={(n) => onChange({ installmentIndex: n || undefined })} />
         </Field>
         <Field label="מתוך">
-          <input type="number" min={1} max={36} value={row.installmentCount ?? ''} onChange={(e) => onChange({ installmentCount: e.target.value ? Number(e.target.value) : undefined })} />
+          <IntInput value={row.installmentCount} max={36} onChange={(n) => onChange({ installmentCount: n || undefined })} />
         </Field>
       </div>
       {row.installmentIndex && row.installmentCount && row.installmentIndex < row.installmentCount && (
