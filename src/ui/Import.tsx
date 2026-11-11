@@ -69,9 +69,15 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
       try {
         let drafts;
         if (isSheet) {
-          const parsed = parseStatementTables(await readTableFromFile(images[i].file));
+          const tables = await readTableFromFile(images[i].file);
+          const parsed = parseStatementTables(tables);
           drafts = parsed.drafts;
-          if (!parsed.foundHeader) throw new SheetError('לא נמצאה בקובץ טבלת עסקאות עם כותרות כמו "תאריך עסקה", "שם בית עסק" ו"סכום חיוב".');
+          if (!parsed.foundHeader) {
+            // Show what was read (column titles only, from the first rows) to help diagnose an unfamiliar layout.
+            const nonEmpty = tables.flat().filter((r) => r && r.some((c) => c && c.trim()));
+            const peek = nonEmpty.slice(0, 4).map((r) => r.filter((c) => c && c.trim()).slice(0, 7).join(' | ').slice(0, 120)).join(' ‖ ');
+            throw new SheetError(`לא נמצאה בקובץ טבלת עסקאות עם כותרות כמו "תאריך עסקה", "שם בית עסק" ו"סכום חיוב". נקראו ${nonEmpty.length} שורות${peek ? `: ${peek}` : ''}`);
+          }
         } else {
           const lines = await recognizeImage(images[i].file, (p) => setImages((prev) => prev.map((im, j) => (j === i ? { ...im, progress: p } : im))));
           drafts = parseStatement(lines).drafts;

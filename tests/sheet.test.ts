@@ -98,3 +98,24 @@ describe('spreadsheet import (Cal-style export)', () => {
     expect(categoryFromHint('משהו אחר', cats)).toBeUndefined();
   });
 });
+
+describe('xlsx variants', () => {
+  it('reads .NET-style files: x: namespace prefixes, self-closing empty rows, absolute targets, inline strings', () => {
+    const sheet = `<x:worksheet xmlns:x="m"><x:sheetData>
+      <x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>פירוט עסקאות</x:t></x:is></x:c></x:row>
+      <x:row r="2"/>
+      <x:row r="3"><x:c r="A3" t="s"><x:v>0</x:v></x:c><x:c r="B3" t="s"><x:v>1</x:v></x:c><x:c r="C3" t="s"><x:v>2</x:v></x:c><x:c r="D3" t="s"><x:v>3</x:v></x:c></x:row>
+      <x:row r="4"><x:c r="A4" t="s"><x:v>4</x:v></x:c><x:c r="B4" t="s"><x:v>5</x:v></x:c><x:c r="C4" t="s"><x:v>6</x:v></x:c><x:c r="D4" t="s"><x:v>6</x:v></x:c></x:row>
+    </x:sheetData></x:worksheet>`;
+    const sst = ['תאריך_x000a_עסקה', 'שם בית עסק', 'סכום_x000a_עסקה', 'סכום_x000a_חיוב', '24/10/26', 'MASHTAL ALFAKHORI', '₪ 75.00'];
+    const buf = zipSync({
+      'xl/workbook.xml': strToU8('<x:workbook xmlns:x="m" xmlns:r="r"><x:sheets><x:sheet name="פירוט" sheetId="1" r:id="R1a2b"/></x:sheets></x:workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<Relationships><Relationship Type="ws" Target="/xl/worksheets/sheet.xml" Id="R1a2b"/></Relationships>'),
+      'xl/worksheets/sheet.xml': strToU8(sheet),
+      'xl/sharedStrings.xml': strToU8(`<x:sst xmlns:x="m">${sst.map((t) => `<x:si><x:t>${t}</x:t></x:si>`).join('')}</x:sst>`),
+    });
+    const { drafts, foundHeader } = parseStatementTables(readTable(buf, 'cal.xlsx'), '2026-11-11');
+    expect(foundHeader).toBe(true);
+    expect(drafts).toEqual([expect.objectContaining({ transactionDate: '2026-10-24', merchant: 'MASHTAL ALFAKHORI', amountAgorot: 7500 })]);
+  });
+});

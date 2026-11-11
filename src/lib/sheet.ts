@@ -83,7 +83,7 @@ function xmlText(s: string): string {
 }
 
 function allText(xml: string): string {
-  return [...xml.matchAll(/<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g)].map((m) => xmlText(m[1])).join('');
+  return [...xml.matchAll(/<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g)].map((m) => xmlText(m[1])).join('').replace(/_x([0-9A-Fa-f]{4})_/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
 }
 
 function colIndex(ref: string): number {
@@ -109,8 +109,13 @@ function readXlsx(buf: Uint8Array): Table[] {
   } catch {
     throw new SheetError('קובץ האקסל פגום או לא נתמך');
   }
-  const read = (p: string) => (files[p] ? strFromU8(files[p]) : '');
-  const shared = [...read('xl/sharedStrings.xml').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => allText(m[1]));
+  // Paths are matched case-insensitively, and namespace prefixes (<x:row>, <x:c> from .NET writers) are removed.
+  const byLower = new Map(Object.keys(files).map((k) => [k.toLowerCase(), k]));
+  const read = (p: string) => {
+    const key = byLower.get(p.toLowerCase());
+    return key ? strFromU8(files[key]).replace(/<(\/?)[A-Za-z_][\w.-]*:(?=[A-Za-z_])/g, '<$1') : '';
+  };
+  const shared = [...read('xl/sharedStrings.xml').matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map((m) => allText(m[1].replace(/<rPh[\s\S]*?<\/rPh>/g, '')));
 
   // Which style indexes are date formats
   const styles = read('xl/styles.xml');
@@ -127,25 +132,27 @@ function readXlsx(buf: Uint8Array): Table[] {
   const rels = read('xl/_rels/workbook.xml.rels');
   const relTarget = new Map([...rels.matchAll(/<Relationship [^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)].map((m) => [m[1], m[2]]));
   const relTarget2 = new Map([...rels.matchAll(/<Relationship [^>]*Target="([^"]+)"[^>]*Id="([^"]+)"/g)].map((m) => [m[2], m[1]]));
-  const sheetPaths = [...wb.matchAll(/<sheet [^>]*r:id="([^"]+)"/g)]
+  const sheetPaths = [...wb.matchAll(/<sheet [^>]*\s[\w]+:id="([^"]+)"/g)]
     .map((m) => relTarget.get(m[1]) ?? relTarget2.get(m[1]))
     .filter((t): t is string => !!t)
     .map((t) => (t.startsWith('/') ? t.slice(1) : 'xl/' + t.replace(/^\.\//, '')));
-  const paths = sheetPaths.length ? sheetPaths : Object.keys(files).filter((f) => /^xl\/worksheets\/sheet\d+\.xml$/.test(f)).sort();
+  const found = sheetPaths.filter((p) => byLower.has(p.toLowerCase()));
+  const paths = found.length ? found : Object.keys(files).filter((f) => /^xl\/worksheets\/[^/]+\.xml$/i.test(f)).sort();
 
   return paths.map((p) => {
     const xml = read(p);
     const table: Table = [];
-    for (const rm of xml.matchAll(/<row[^>]*?(?:r="(\d+)")?[^>]*>([\s\S]*?)<\/row>/g)) {
-      const rowIdx = rm[1] ? Number(rm[1]) - 1 : table.length;
+    for (const rm of xml.matchAll(/<row(\s[^>]*?)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+      const r = (rm[1] ?? '').match(/\sr="(\d+)"/)?.[1];
+      const rowIdx = r ? Number(r) - 1 : table.length;
       const row: string[] = [];
-      for (const cm of rm[2].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-        const attrs = cm[1];
+      for (const cm of (rm[2] ?? '').matchAll(/<c(\s[^>]*?)?(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const attrs = cm[1] ?? '';
         const ref = attrs.match(/r="([A-Z]+\d+)"/)?.[1];
         const t = attrs.match(/t="(\w+)"/)?.[1];
         const sIdx = Number(attrs.match(/s="(\d+)"/)?.[1] ?? -1);
         const body = cm[2] ?? '';
-        const v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+        const v = body.match(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/)?.[1];
         let text = '';
         if (t === 's' && v != null) text = shared[Number(v)] ?? '';
         else if (t === 'inlineStr') text = allText(body);
