@@ -5,7 +5,7 @@ import { merchantSimilarity, suggestCategory } from '../lib/merchant';
 import { predictChargeDate } from '../lib/billing';
 import { categoryFromHint } from '../lib/statementTable';
 import { loanOccurrences } from '../lib/loans';
-import { addMonths, monthOf, todayLocal, type ISODate } from '../lib/dates';
+import { addMonths, dayInMonth, monthOf, todayLocal, type ISODate } from '../lib/dates';
 import type { Draft } from '../lib/ocrParser';
 import type { ChargeDateSource, Transaction } from '../lib/types';
 import { rememberMerchantCategory } from './transactions';
@@ -33,6 +33,16 @@ export interface ReviewRow {
   loanMatch?: { loanId: string; loanName: string; occurrenceDate: ISODate; action: 'merge' | 'keep' };
 }
 
+/**
+ * A charge date read from a statement is trusted only near the card's billing day (it may move a few
+ * days for weekends and holidays). Anything else is more likely another date on the page, such as
+ * "correct as of" or the statement's print date, so the predicted date is used instead.
+ */
+export function nearBillingDay(date: ISODate, billingDay: number): boolean {
+  const t = (d: ISODate) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10));
+  return [-1, 0, 1].some((k) => Math.abs(t(dayInMonth(addMonths(monthOf(date), k), billingDay)) - t(date)) <= 4 * 86_400_000);
+}
+
 /** Converts parser drafts into editable review rows with predicted charge dates and suggested categories. */
 export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: string): Promise<ReviewRow[]> {
   const card = await db.cards.get(cardId);
@@ -41,7 +51,7 @@ export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: 
   return drafts.map((d, i) => {
     let chargeDate: ISODate | '' = '';
     let chargeDateSource: ChargeDateSource = 'predicted';
-    if (d.explicitChargeDate) {
+    if (d.explicitChargeDate && (!card || nearBillingDay(d.explicitChargeDate, card.billingDay))) {
       chargeDate = d.explicitChargeDate;
       chargeDateSource = 'explicit';
     } else if (d.transactionDate && card) {

@@ -33,7 +33,7 @@ const SHORT_DATE = /(?<![\d.,])(\d{1,2})\/(\d{1,2})(?![\d/])/;
 const HEB_DATE = /(\d{1,2})\s*ב?([א-ת]{3,8})['׳]?(?:\s+(\d{4}))?/;
 const AMOUNT = /-?₪?\s?-?\d{1,3}(?:,\d{3})*\.\d{1,2}(?!\d)-?|-?₪\s?\d+(?:\.\d{1,2})?|-?\d+\.\d{2}(?!\d)/g;
 export const INSTALLMENT = /(?:תשלום\s*)?(\d{1,2})\s*(?:מתוך|מ-|\/)\s*(\d{1,2})(?:\s*תשלומים)?/;
-export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב|לתאריך)/;
+export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב|חיוב\D{0,30}לתאריך)/;
 /** Card-type column of Israeli statements (mobile wallet, standing order, card not shown). */
 const CARD_TYPE = /ת+ש['.]?\s?נ?י?י?ד|לא\s?הוצג|ה\S{0,2}קבע/g;
 /** Sector column values (e.g. "מכולת/סופר"); kept as a category hint and removed from the merchant name. */

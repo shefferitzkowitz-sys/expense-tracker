@@ -47,3 +47,14 @@ describe('amount parsing', () => {
     expect(parseAmount('abc')).toBeNull();
   });
 });
+
+import { nearBillingDay } from '../src/services/importer';
+describe('statement charge date sanity', () => {
+  it('accepts dates near the billing day and rejects others', () => {
+    expect(nearBillingDay('2026-11-10', 10)).toBe(true);
+    expect(nearBillingDay('2026-11-12', 10)).toBe(true); // moved for a weekend
+    expect(nearBillingDay('2026-11-05', 10)).toBe(false);
+    expect(nearBillingDay('2026-11-02', 2)).toBe(true);
+    expect(nearBillingDay('2026-10-30', 2)).toBe(true);
+  });
+});
