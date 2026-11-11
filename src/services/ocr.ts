@@ -5,11 +5,14 @@ import type { OcrLine } from '../lib/ocrParser';
 // Nothing is fetched from a CDN, and images never leave the device.
 const base = new URL('./ocr/', document.baseURI).href;
 
-let workerPromise: Promise<Worker> | null = null;
+const workers = new Map<string, Promise<Worker>>();
+let progressCb: ((p: number) => void) | undefined;
 
-export function getOcrWorker(onProgress?: (p: number) => void): Promise<Worker> {
-  if (!workerPromise) {
-    workerPromise = createWorker(['heb', 'eng'], OEM.LSTM_ONLY, {
+function getWorker(langs: string[]): Promise<Worker> {
+  const key = langs.join('+');
+  let w = workers.get(key);
+  if (!w) {
+    w = createWorker(langs, OEM.LSTM_ONLY, {
       workerPath: base + 'worker.min.js',
       corePath: base + 'core/',
       langPath: base + 'lang/',
@@ -17,17 +20,21 @@ export function getOcrWorker(onProgress?: (p: number) => void): Promise<Worker> 
       workerBlobURL: false,
       cacheMethod: 'none',
       logger: (m) => {
-        if (m.status === 'recognizing text' && onProgress) onProgress(m.progress);
+        if (m.status === 'recognizing text' && progressCb) progressCb(m.progress);
       },
-    }).then(async (w) => {
-      await w.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
-      return w;
+    }).then(async (wk) => {
+      await wk.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
+      return wk;
     });
-    workerPromise.catch(() => {
-      workerPromise = null;
-    });
+    w.catch(() => workers.delete(key));
+    workers.set(key, w);
   }
-  return workerPromise;
+  return w;
+}
+
+export function getOcrWorker(onProgress?: (p: number) => void): Promise<Worker> {
+  progressCb = onProgress;
+  return getWorker(['heb', 'eng']);
 }
 
 /** Upscales small screenshots and converts to grayscale for better OCR of small statement text. */
@@ -55,18 +62,57 @@ async function preprocess(file: Blob): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
-export async function recognizeImage(file: Blob, onProgress?: (p: number) => void): Promise<OcrLine[]> {
-  const worker = await getOcrWorker(onProgress);
-  const canvas = await preprocess(file);
+interface BoxLine { text: string; confidence: number; y0: number; y1: number }
+
+async function readLines(worker: Worker, canvas: HTMLCanvasElement): Promise<BoxLine[]> {
   const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
-  const lines: OcrLine[] = [];
+  const lines: BoxLine[] = [];
   for (const block of data.blocks ?? []) {
     for (const para of block.paragraphs) {
-      for (const line of para.lines) lines.push({ text: line.text.trim(), confidence: line.confidence });
+      for (const line of para.lines) lines.push({ text: line.text.trim(), confidence: line.confidence, y0: line.bbox.y0, y1: line.bbox.y1 });
     }
   }
   if (lines.length === 0 && data.text) {
-    for (const t of data.text.split('\n')) if (t.trim()) lines.push({ text: t.trim(), confidence: data.confidence });
+    for (const t of data.text.split('\n')) if (t.trim()) lines.push({ text: t.trim(), confidence: data.confidence, y0: 0, y1: 0 });
   }
   return lines;
+}
+
+/**
+ * Reads a screenshot twice: a Hebrew pass for merchant names and a Latin-only pass that reads dates and
+ * amounts reliably (the Hebrew model often garbles left-to-right numbers in table rows). Each Hebrew
+ * line gets the Latin line that overlaps it most vertically as `numText`.
+ */
+export async function recognizeImage(file: Blob, onProgress?: (p: number) => void): Promise<OcrLine[]> {
+  const canvas = await preprocess(file);
+  progressCb = onProgress && ((p) => onProgress(p / 2));
+  const heb = await readLines(await getWorker(['heb', 'eng']), canvas);
+  progressCb = onProgress && ((p) => onProgress(0.5 + p / 2));
+  let eng: BoxLine[] = [];
+  try {
+    eng = await readLines(await getWorker(['eng']), canvas);
+  } catch {
+    // The Latin pass only improves numbers; without it the Hebrew pass is used alone.
+  }
+  // One-to-one: each Latin line goes to the Hebrew line it overlaps most (at least half the shorter
+  // line's height); a Hebrew line left without one is parsed from its own text only.
+  const numFor = new Map<number, { text: string; overlap: number }>();
+  for (const e of eng) {
+    let bestI = -1;
+    let bestOverlap = 0;
+    heb.forEach((h, i) => {
+      const overlap = Math.min(h.y1, e.y1) - Math.max(h.y0, e.y0);
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestI = i;
+      }
+    });
+    if (bestI < 0) continue;
+    const h = heb[bestI];
+    if (bestOverlap < Math.min(h.y1 - h.y0, e.y1 - e.y0) * 0.5) continue;
+    const prev = numFor.get(bestI);
+    if (!prev || prev.overlap < bestOverlap) numFor.set(bestI, { text: e.text, overlap: bestOverlap });
+  }
+  const merged: OcrLine[] = heb.map((h, i) => ({ text: h.text, confidence: h.confidence, numText: numFor.get(i)?.text }));
+  return merged;
 }

@@ -118,3 +118,25 @@ describe('statement parser: noise and discounts', () => {
     expect(drafts.map((d) => !!d.suspicious)).toEqual([false, true, true]);
   });
 });
+
+describe('statement parser: two-pass OCR (table statements)', () => {
+  it('takes dates and amounts from the Latin pass and the merchant from the Hebrew pass', () => {
+    const { drafts, explicitChargeDate } = parseStatement([
+      { text: 'תאריך כרטיס שם בית עסק ענף סכום', confidence: 90, numText: 'Nnn ...' },
+      { text: '6 תש.נייד סופר דוגמה מכולת/סופר 120.00 120.00 הנחה 5.00 ₪ מבצע', confidence: 95, numText: 'XXX 5.00 NNN 120.00 120.00 191D/N7Dn SUPER Tm.wn 11/10/26' },
+      { text: '6 תש.נייד תחנת שער דלק 267.67267.67', confidence: 95, numText: '267.67267.67 p71 TM.wn 12/10/26' },
+      { text: '6 תש.נייד חנות פארם קניון פארמה 136.27 46.27 תשלום 1 מתוך3', confidence: 95, numText: '31nn 46.27 136.27 NINO Twn 03/11/26' },
+      { text: '6 תש.נייד ויקטורי מכולת/סופר 13.9013.90', confidence: 95 },
+      { text: 'פה"כ חיוב לתאריך 10/11/26 7,046.89', confidence: 90, numText: '6.44 7,046.89 10/11/26' },
+      { text: 'סה"כ חיוב בניכוי ההנחה לתאריך 7,040.45', confidence: 90, numText: '7,040.45 10/11/26' },
+    ], '2026-11-11');
+    expect(explicitChargeDate).toBe('2026-11-10');
+    expect(drafts.map((d) => [d.transactionDate, d.amountAgorot, d.merchant, d.installmentIndex, !!d.suspicious])).toEqual([
+      ['2026-10-11', 11500, 'סופר דוגמה', undefined, false],
+      ['2026-10-12', 26767, 'תחנת שער', undefined, false],
+      ['2026-11-03', 4627, 'חנות פארם קניון', 1, false],
+      [undefined, 1390, '6 ויקטורי', undefined, true],
+    ]);
+    expect(drafts[0].categoryHint).toBe('מכולת/סופר');
+  });
+});

@@ -4,6 +4,8 @@ import { parseAmount } from './money';
 export interface OcrLine {
   text: string;
   confidence: number; // 0..100
+  /** The same line read by a Latin-only pass, which reads dates and amounts far more reliably than the Hebrew pass. */
+  numText?: string;
 }
 
 export interface Draft {
@@ -31,7 +33,11 @@ const SHORT_DATE = /(?<![\d.,])(\d{1,2})\/(\d{1,2})(?![\d/])/;
 const HEB_DATE = /(\d{1,2})\s*ב?([א-ת]{3,8})['׳]?(?:\s+(\d{4}))?/;
 const AMOUNT = /-?₪?\s?-?\d{1,3}(?:,\d{3})*\.\d{1,2}(?!\d)-?|-?₪\s?\d+(?:\.\d{1,2})?|-?\d+\.\d{2}(?!\d)/g;
 export const INSTALLMENT = /(?:תשלום\s*)?(\d{1,2})\s*(?:מתוך|מ-|\/)\s*(\d{1,2})(?:\s*תשלומים)?/;
-export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב)/;
+export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב|לתאריך)/;
+/** Card-type column of Israeli statements (mobile wallet, standing order, card not shown). */
+const CARD_TYPE = /ת+ש['.]?\s?נ?י?י?ד|לא\s?הוצג|ה\S{0,2}קבע/g;
+/** Sector column values (e.g. "מכולת/סופר"); kept as a category hint and removed from the merchant name. */
+const SECTOR = /[א-ת'"]+\/[א-ת'"]+|שירותי\s*רכב|כלי\s+בית|תש'\s?רשויות|אבזרי\s+אפנה|(?<=\s|^)(?:דלק|ביטוח|שונות|פארמה|תרבות|מחשבים)(?=\s|$)/g;
 const NOISE = /^(סה["״]?כ|סך הכל|יתרה|מסגרת|עסקאות|פירוט|חיובים|בחיוב הקרוב|ש["״]?ח)(?=\s|$)/;
 /** Words that mark account or offer text (interest, credit line, balances), never a purchase. */
 const NON_TX = /(ריבית|קרדיט|משתנה|רבעוני|מסגרת|יתרת|יתרה|ניצול|זמינה|נקודות|סה["״]?כ|סך הכל|לתשלום|תקרת|אשראי זמין)/;
@@ -95,15 +101,34 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
   for (const line of lines) {
     let text = line.text.replace(/[‎‏]/g, '').trim();
     if (!text) continue;
+    // Adjacent amount columns can run together ("267.67267.67"): split after the second decimal digit.
+    const splitAmounts = (t: string) => t.replace(/(\d\.\d{2})(?=\d)/g, '$1 ');
+    text = splitAmounts(text);
+    let num = line.numText ? splitAmounts(line.numText.replace(/[‎‏]/g, '')) : undefined;
 
     if (CHARGE_HINT.test(text)) {
-      const d = findDate(text, today);
+      const d = (num && findDate(num, today)) || findDate(text, today);
       if (d) explicitChargeDate = d.date;
       continue;
     }
 
-    const date = findDate(text, today);
-    if (date) text = text.replace(date.match, ' ');
+    const date = (num && findDate(num, today)) || findDate(text, today);
+    if (date) {
+      text = text.replace(date.match, ' ');
+      if (num) num = num.replace(date.match, ' ');
+    }
+    let categoryHint: string | undefined;
+    if (num || CARD_TYPE.test(text)) {
+      CARD_TYPE.lastIndex = 0;
+      // Two-pass OCR: numbers come from the Latin pass, so drop the Hebrew pass's misread digits and
+      // the card-type and sector columns from the merchant text.
+      text = text.replace(CARD_TYPE, ' ');
+      const sectors = text.match(SECTOR);
+      if (sectors) {
+        categoryHint = sectors.join(' ');
+        text = text.replace(SECTOR, ' ');
+      }
+    }
 
     const inst = text.match(INSTALLMENT);
     let installmentIndex: number | undefined;
@@ -122,7 +147,9 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     }
     text = text.replace(PERCENT, ' ');
 
-    const amounts = [...text.matchAll(AMOUNT)].map((m) => m[0]);
+    if (num) num = num.replace(PERCENT, ' ');
+    const textAmounts = [...text.matchAll(AMOUNT)].map((m) => m[0]);
+    const amounts = num ? [...num.matchAll(AMOUNT)].map((m) => m[0]) : textAmounts;
     const parsed = amounts.map((a) => parseAmount(a)).filter((a): a is number => a != null);
     const isDiscount = DISCOUNT.test(text);
 
@@ -166,7 +193,8 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     }
     if (NOISE.test(cleanMerchant(text))) continue;
 
-    for (const a of amounts) text = text.replace(a, ' ');
+    for (const a of textAmounts) text = text.replace(a, ' ');
+    if (num) text = text.replace(/(^|\s)[\d.,/()|\\-]+(?=\s|$)/g, ' ').replace(/(הנחה|הנחת|הטבה)[^]*$/, ' ');
     const merchant = cleanMerchant(text.replace(/₪|ש["״]ח/g, ' '));
     let amountAgorot = parsed[0];
     if (parsed.length > 1) {
@@ -189,7 +217,7 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     if (!transactionDate) uncertain.push('transactionDate');
     else if (!date || date.uncertain) uncertain.push('transactionDate');
     if (merchant.length < 2) uncertain.push('merchant');
-    if (parsed.length > 1) uncertain.push('amountAgorot');
+    if (new Set(parsed).size > 1) uncertain.push('amountAgorot');
 
     const draft: Draft = {
       transactionDate: layout === 'below' && !date ? undefined : transactionDate,
@@ -199,6 +227,7 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
       installmentCount,
       rawText: line.text,
       uncertain,
+      categoryHint,
     };
     if (Math.abs(amountAgorot) > MAX_PLAUSIBLE) draft.suspicious = 'סכום גבוה במיוחד';
     if (date) ownDate.add(draft);
