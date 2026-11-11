@@ -214,3 +214,6 @@ input[type="date"], input[type="month"] { direction: ltr; text-align: right; }
 .zoom img { width: 100%; max-width: 640px; height: auto; }
 
 @media (max-width: 380px) { .grid2 { grid-template-columns: 1fr; } .hero-amount { font-size: 1.9rem; } }
+.sheet-thumb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 140px; border-radius: 10px; border: 1px solid var(--line); background: var(--brand-soft); color: var(--brand); font-weight: 700; padding: 6px; text-align: center; }
+.sheet-thumb small { font-weight: 400; font-size: 0.7rem; color: var(--muted); overflow-wrap: anywhere; }
+.review-thumb.sheet-thumb { height: 88px; cursor: default; }

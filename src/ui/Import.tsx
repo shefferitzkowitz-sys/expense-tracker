@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { predictChargeDate } from '../lib/billing';
 import { isValidDate } from '../lib/dates';
 import { parseStatement } from '../lib/ocrParser';
+import { readTableFromFile, SheetError } from '../lib/sheet';
+import { parseStatementTables } from '../lib/statementTable';
+
+const SHEET_EXT = /\.(xlsx|xls|csv|txt)$/i;
 import { formatILS } from '../lib/money';
 import { annotateDuplicates, draftsToRows, rowIsValid, saveImport, type ReviewRow } from '../services/importer';
 import { recognizeImage } from '../services/ocr';
@@ -9,8 +13,10 @@ import { AmountInput, CategorySelect, Empty, Field, IntInput } from './common';
 import type { AppData } from './useData';
 
 interface Img {
+  id: string;
+  kind: 'image' | 'sheet';
   file: File;
-  url: string;
+  url: string; // object URL for images; empty for spreadsheets
   status: 'pending' | 'running' | 'done' | 'error';
   progress: number;
   message?: string;
@@ -37,14 +43,20 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
   // Source images live only in memory and are released after import (privacy default).
   const imagesRef = useRef<Img[]>([]);
   imagesRef.current = images;
-  useEffect(() => () => imagesRef.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
+  useEffect(() => () => imagesRef.current.forEach((i) => i.url && URL.revokeObjectURL(i.url)), []);
 
   const card = data.cards.find((c) => c.id === cardId);
 
   const pick = (files: FileList | null) => {
     if (!files) return;
-    const list = [...files].filter((f) => f.type.startsWith('image/'));
-    setImages((prev) => [...prev, ...list.map((file) => ({ file, url: URL.createObjectURL(file), status: 'pending' as const, progress: 0 }))]);
+    const list = [...files].filter((f) => f.type.startsWith('image/') || SHEET_EXT.test(f.name));
+    setImages((prev) => [
+      ...prev,
+      ...list.map((file) => {
+        const kind = file.type.startsWith('image/') ? ('image' as const) : ('sheet' as const);
+        return { id: crypto.randomUUID(), kind, file, url: kind === 'image' ? URL.createObjectURL(file) : '', status: 'pending' as const, progress: 0 };
+      }),
+    ]);
   };
 
   const runOcr = async () => {
@@ -53,15 +65,25 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
     const all: ReviewRow[] = [];
     for (let i = 0; i < images.length; i++) {
       setImages((prev) => prev.map((im, j) => (j === i ? { ...im, status: 'running', progress: 0 } : im)));
+      const isSheet = images[i].kind === 'sheet';
       try {
-        const lines = await recognizeImage(images[i].file, (p) => setImages((prev) => prev.map((im, j) => (j === i ? { ...im, progress: p } : im))));
-        const { drafts } = parseStatement(lines);
+        let drafts;
+        if (isSheet) {
+          const parsed = parseStatementTables(await readTableFromFile(images[i].file));
+          drafts = parsed.drafts;
+          if (!parsed.foundHeader) throw new SheetError('לא נמצאה בקובץ טבלת עסקאות עם כותרות כמו "תאריך עסקה", "שם בית עסק" ו"סכום חיוב".');
+        } else {
+          const lines = await recognizeImage(images[i].file, (p) => setImages((prev) => prev.map((im, j) => (j === i ? { ...im, progress: p } : im))));
+          drafts = parseStatement(lines).drafts;
+        }
         const r = await draftsToRows(drafts, i, cardId);
         all.push(...r);
-        setImages((prev) => prev.map((im, j) => (j === i ? { ...im, status: 'done', progress: 1, message: drafts.length ? `${drafts.length} שורות זוהו` : 'לא זוהו עסקאות בתמונה. אפשר להוסיף שורות ידנית.' } : im)));
+        const none = isSheet ? 'לא נמצאו עסקאות בקובץ. אפשר להוסיף שורות ידנית.' : 'לא זוהו עסקאות בתמונה. אפשר להוסיף שורות ידנית.';
+        setImages((prev) => prev.map((im, j) => (j === i ? { ...im, status: 'done', progress: 1, message: drafts.length ? `${drafts.length} שורות ${isSheet ? 'נקראו' : 'זוהו'}` : none } : im)));
       } catch (e) {
         console.error(e);
-        setImages((prev) => prev.map((im, j) => (j === i ? { ...im, status: 'error', message: 'לא הצלחנו לקרוא את התמונה. אפשר להוסיף שורות ידנית.' } : im)));
+        const msg = e instanceof SheetError ? e.message : isSheet ? 'לא הצלחנו לקרוא את הקובץ. אפשר להוסיף שורות ידנית.' : 'לא הצלחנו לקרוא את התמונה. אפשר להוסיף שורות ידנית.';
+        setImages((prev) => prev.map((im, j) => (j === i ? { ...im, status: 'error', message: msg } : im)));
       }
     }
     setRows(await annotateDuplicates(all, cardId));
@@ -94,7 +116,7 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
     setSaving(true);
     try {
       const res = await saveImport(cardId, rows, images.length);
-      images.forEach((i) => URL.revokeObjectURL(i.url));
+      images.forEach((i) => i.url && URL.revokeObjectURL(i.url));
       setImages([]);
       setRows([]);
       setResult(res);
@@ -107,7 +129,7 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
   };
 
   const reset = () => {
-    images.forEach((i) => URL.revokeObjectURL(i.url));
+    images.forEach((i) => i.url && URL.revokeObjectURL(i.url));
     setImages([]);
     setRows([]);
     setResult(null);
@@ -144,23 +166,23 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
     <div className="page import">
       {stage !== 'review' && (
         <section className="card">
-          <h3>ייבוא צילומי מסך</h3>
-          <p className="hint">הזיהוי מתבצע במכשיר בלבד. התמונות והטקסט לא נשלחים לשום מקום.</p>
+          <h3>ייבוא צילומי מסך או קובץ אקסל</h3>
+          <p className="hint">אפשר לבחור צילומי מסך מאפליקציית האשראי או קובץ אקסל/CSV שהורדת מאתר חברת האשראי. הקריאה מתבצעת במכשיר בלבד, ושום דבר לא נשלח לשום מקום.</p>
           <Field label="כרטיס מקור" htmlFor="imp-card">
             <select id="imp-card" value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={stage === 'ocr'}>
               {cards.map((c) => <option key={c.id} value={c.id}>{c.name} (חיוב ב-{c.billingDay})</option>)}
             </select>
           </Field>
-          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { pick(e.target.files); e.target.value = ''; }} />
+          <input ref={fileRef} type="file" accept="image/*,.xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" multiple hidden onChange={(e) => { pick(e.target.files); e.target.value = ''; }} />
           <div className="row-actions">
-            <button className="btn" onClick={() => fileRef.current?.click()} disabled={stage === 'ocr'}>בחירת תמונות</button>
-            {images.length > 0 && stage === 'pick' && <button className="btn primary" onClick={runOcr}>זיהוי {images.length} תמונות</button>}
+            <button className="btn" onClick={() => fileRef.current?.click()} disabled={stage === 'ocr'}>בחירת קבצים</button>
+            {images.length > 0 && stage === 'pick' && <button className="btn primary" onClick={runOcr}>קריאת {images.length} קבצים</button>}
           </div>
           {images.length > 0 && (
             <ul className="thumbs">
               {images.map((im, i) => (
-                <li key={im.url}>
-                  <img src={im.url} alt={`צילום ${i + 1}`} />
+                <li key={im.id}>
+                  {im.kind === 'image' ? <img src={im.url} alt={`צילום ${i + 1}`} /> : <div className="sheet-thumb" title={im.file.name}><span>XLS</span><small>{im.file.name}</small></div>}
                   <div className="thumb-status">
                     {im.status === 'pending' && stage === 'pick' && <button className="link" onClick={() => setImages((p) => p.filter((_, j) => j !== i))}>הסרה</button>}
                     {im.status === 'running' && <progress value={im.progress} max={1} />}
@@ -191,11 +213,13 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
           </section>
 
           {images.map((im, i) => (
-            <section className="card review-group" key={im.url}>
+            <section className="card review-group" key={im.id}>
               <div className="review-head">
-                <button className="review-thumb" onClick={() => setZoom(i)} aria-label={`הגדלת צילום ${i + 1}`}><img src={im.url} alt="" /></button>
+                {im.kind === 'image'
+                  ? <button className="review-thumb" onClick={() => setZoom(i)} aria-label={`הגדלת צילום ${i + 1}`}><img src={im.url} alt="" /></button>
+                  : <div className="review-thumb sheet-thumb"><span>XLS</span></div>}
                 <div>
-                  <strong>צילום {i + 1}</strong>
+                  <strong>{im.kind === 'image' ? `צילום ${i + 1}` : im.file.name}</strong>
                   <div className={`hint ${im.status === 'error' ? 'err' : ''}`}>{im.message}</div>
                 </div>
               </div>

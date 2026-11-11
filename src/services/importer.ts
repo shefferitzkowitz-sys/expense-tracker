@@ -3,6 +3,7 @@ import { futureInstallmentsFrom } from '../lib/installments';
 import { findDuplicates, matchesLoan, type MatchKind } from '../lib/dedupe';
 import { merchantSimilarity, suggestCategory } from '../lib/merchant';
 import { predictChargeDate } from '../lib/billing';
+import { categoryFromHint } from '../lib/statementTable';
 import { loanOccurrences } from '../lib/loans';
 import { addMonths, monthOf, todayLocal, type ISODate } from '../lib/dates';
 import type { Draft } from '../lib/ocrParser';
@@ -35,6 +36,7 @@ export interface ReviewRow {
 export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: string): Promise<ReviewRow[]> {
   const card = await db.cards.get(cardId);
   const rules = await db.merchantRules.toArray();
+  const categories = await db.categories.toArray();
   return drafts.map((d, i) => {
     let chargeDate: ISODate | '' = '';
     let chargeDateSource: ChargeDateSource = 'predicted';
@@ -51,7 +53,7 @@ export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: 
       transactionDate: d.transactionDate ?? '',
       merchant: d.merchant,
       amountAgorot: d.amountAgorot ?? null,
-      categoryId: suggestCategory(d.merchant, rules),
+      categoryId: suggestCategory(d.merchant, rules) ?? categoryFromHint(d.categoryHint, categories),
       chargeDate,
       chargeDateSource,
       installmentIndex: d.installmentIndex,
@@ -123,7 +125,7 @@ export function markCrossImageOverlaps(rows: ReviewRow[]): ReviewRow[] {
       o.transactionDate === r.transactionDate && merchantSimilarity(o.merchant, r.merchant) >= 0.85);
     if (twin < 0) return r;
     taken.add(rows[twin].key);
-    return { ...r, duplicate: { existingId: '', kind: 'possible', reasons: ['מופיע גם בתמונה ' + (rows[twin].imageIndex + 1)], summary: 'שורה חופפת בין צילומי מסך', action: 'skip' } };
+    return { ...r, duplicate: { existingId: '', kind: 'possible', reasons: ['מופיע גם בקובץ ' + (rows[twin].imageIndex + 1)], summary: 'שורה שמופיעה פעמיים בקבצים שנבחרו', action: 'skip' } };
   });
 }
 

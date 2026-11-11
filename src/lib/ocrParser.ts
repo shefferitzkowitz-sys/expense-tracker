@@ -15,6 +15,8 @@ export interface Draft {
   explicitChargeDate?: ISODate;
   rawText: string;
   uncertain: string[]; // field names that need review
+  /** Category text from the statement (e.g. a card company's "sector" column), used only as a suggestion. */
+  categoryHint?: string;
 }
 
 const HEB_MONTHS: Record<string, number> = {
@@ -26,8 +28,8 @@ const FULL_DATE = /(\d{1,2})[./-](\d{1,2})[./-](\d{4}|\d{2})(?!\d)/;
 const SHORT_DATE = /(?<![\d.,])(\d{1,2})\/(\d{1,2})(?![\d/])/;
 const HEB_DATE = /(\d{1,2})\s*ב?([א-ת]{3,8})['׳]?(?:\s+(\d{4}))?/;
 const AMOUNT = /-?₪?\s?-?\d{1,3}(?:,\d{3})*\.\d{1,2}(?!\d)-?|-?₪\s?\d+(?:\.\d{1,2})?|-?\d+\.\d{2}(?!\d)/g;
-const INSTALLMENT = /(?:תשלום\s*)?(\d{1,2})\s*(?:מתוך|מ-|\/)\s*(\d{1,2})(?:\s*תשלומים)?/;
-const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב)/;
+export const INSTALLMENT = /(?:תשלום\s*)?(\d{1,2})\s*(?:מתוך|מ-|\/)\s*(\d{1,2})(?:\s*תשלומים)?/;
+export const CHARGE_HINT = /(מועד\s*חיוב|תאריך\s*חיוב|לחיוב\s*ב|חיוב\s*ב|יחויב)/;
 const NOISE = /^(סה["״]?כ|סך הכל|יתרה|מסגרת|עסקאות|פירוט|חיובים|בחיוב הקרוב|ש["״]?ח)(?=\s|$)/;
 
 /** Infers the year of a dd/mm date with no year: the most recent such date not after today. */
@@ -38,7 +40,7 @@ function inferYear(day: number, month: number, today: ISODate): ISODate | null {
   return isValidDate(candidate) ? candidate : null;
 }
 
-function findDate(text: string, today: ISODate): { date: ISODate; match: string; uncertain: boolean } | null {
+export function findDate(text: string, today: ISODate): { date: ISODate; match: string; uncertain: boolean } | null {
   const f = text.match(FULL_DATE);
   if (f) {
     const d = parseDisplayDate(`${f[1]}/${f[2]}/${f[3]}`);
