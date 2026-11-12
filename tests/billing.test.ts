@@ -58,3 +58,12 @@ describe('statement charge date sanity', () => {
     expect(nearBillingDay('2026-10-30', 2)).toBe(true);
   });
 });
+
+import { rowChargeDate } from '../src/services/importer';
+describe('imported installment charge date', () => {
+  it('installment N is charged N-1 months after the first charge', () => {
+    expect(rowChargeDate('2026-08-17', 10, 3)).toBe('2026-11-10');
+    expect(rowChargeDate('2026-09-27', 10, 2)).toBe('2026-11-10');
+    expect(rowChargeDate('2026-10-12', 10)).toBe('2026-11-10');
+  });
+});

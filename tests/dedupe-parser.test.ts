@@ -140,3 +140,19 @@ describe('statement parser: two-pass OCR (table statements)', () => {
     expect(drafts[0].categoryHint).toBe('מכולת/סופר');
   });
 });
+
+describe('statement parser: foreign purchases and sections', () => {
+  it('foreign row: charge is the shekel amount, purchase date is the first column, commission line skipped', () => {
+    const { drafts } = parseStatement([
+      { text: 'ל WHOP 39.99 08/11/26 3.1940 3.19130.92', confidence: 93, numText: '130.92 3.19 3.1940 08/11/26 39.99% WHOP 7 07/11/26' },
+      { text: '**פ.עמלה: %עמלה: 2.500 | עמלה ברוטו: 3.19 ₪ | %הנחה: 0.00 | סך הנחה : 0.00₪', confidence: 83, numText: '© 0.00: NNN 0 10.00' },
+      { text: 'סה"כ חיוב לתאריך 10/11/26 130.92', confidence: 85, numText: '130.92 10/11/26 1INN' },
+      { text: '03/11/26 משיכת מזומנים שונות 700.00700.00', confidence: 97, numText: '700.00 700.00 nw DIN 03/11/26' },
+      { text: 'סה"כ חיוב לתאריך 05/11/26 700.00', confidence: 91, numText: '700.00 05/11/26 IXN' },
+    ], '2026-11-12');
+    expect(drafts.map((d) => [d.transactionDate, d.amountAgorot, d.merchant, d.installmentIndex, d.explicitChargeDate])).toEqual([
+      ['2026-11-07', 13092, 'WHOP', undefined, '2026-11-10'],
+      ['2026-11-03', 70000, 'משיכת מזומנים', undefined, '2026-11-05'],
+    ]);
+  });
+});

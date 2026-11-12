@@ -40,7 +40,7 @@ const CARD_TYPE = /ת+ש['.]?\s?נ?י?י?ד|לא\s?הוצג|ה\S{0,2}קבע/g;
 const SECTOR = /[א-ת'"]+\/[א-ת'"]+|שירותי\s*רכב|כלי\s+בית|תש'\s?רשויות|אבזרי\s+אפנה|(?<=\s|^)(?:דלק|ביטוח|שונות|פארמה|תרבות|מחשבים)(?=\s|$)/g;
 const NOISE = /^(סה["״]?כ|סך הכל|יתרה|מסגרת|עסקאות|פירוט|חיובים|בחיוב הקרוב|ש["״]?ח)(?=\s|$)/;
 /** Words that mark account or offer text (interest, credit line, balances), never a purchase. */
-const NON_TX = /(ריבית|קרדיט|משתנה|רבעוני|מסגרת|יתרת|יתרה|ניצול|זמינה|נקודות|סה["״]?כ|סך הכל|לתשלום|תקרת|אשראי זמין)/;
+const NON_TX = /(עמלה\s*ברוטו|פ\.\s?עמלה|%\s?עמלה|ריבית|קרדיט|משתנה|רבעוני|מסגרת|יתרת|יתרה|ניצול|זמינה|נקודות|סה["״]?כ|סך הכל|לתשלום|תקרת|אשראי זמין)/;
 const PERCENT = /-?\d+(?:[.,]\d+)?\s*%|%\s*-?\d+(?:[.,]\d+)?/g;
 const DISCOUNT = /(הנחה|הנחת|הטבה|החזר כספי|קשבק|cashback)/i;
 /** A single statement line above this is far more likely a misread (limit, balance) than a purchase. */
@@ -75,6 +75,16 @@ export function findDate(text: string, today: ISODate): { date: ISODate; match: 
   return null;
 }
 
+/** The last full date on a line (dd/mm/yy or dd/mm/yyyy). */
+function lastDate(text: string, today: ISODate): ReturnType<typeof findDate> {
+  const all = [...text.matchAll(new RegExp(FULL_DATE.source, 'g'))];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const d = findDate(all[i][0], today);
+    if (d) return d;
+  }
+  return findDate(text, today);
+}
+
 function cleanMerchant(text: string): string {
   return text
     .replace(/[|•·*_~=<>{}[\]]/g, ' ')
@@ -97,6 +107,10 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
   let layout: 'below' | 'above' | undefined;
   let headerDate: ISODate | undefined;
   let explicitChargeDate: ISODate | undefined;
+  // Statements print "total charged on <date>" under each section; that date belongs to the rows above
+  // it. A charge date printed before any row (a header) applies to the rows after it.
+  let sectionStart = 0;
+  let headerCharge: ISODate | undefined;
 
   for (const line of lines) {
     let text = line.text.replace(/[‎‏]/g, '').trim();
@@ -107,16 +121,27 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     let num = line.numText ? splitAmounts(line.numText.replace(/[‎‏]/g, '')) : undefined;
 
     if (CHARGE_HINT.test(text)) {
-      const d = (num && findDate(num, today)) || findDate(text, today);
-      if (d) explicitChargeDate = d.date;
+      const d = (num && lastDate(num, today)) || findDate(text, today);
+      if (d) {
+        explicitChargeDate = d.date;
+        if (drafts.length === 0) headerCharge = d.date;
+        for (let k = sectionStart; k < drafts.length; k++) drafts[k].explicitChargeDate ??= d.date;
+        sectionStart = drafts.length;
+      }
       continue;
     }
 
-    const date = (num && findDate(num, today)) || findDate(text, today);
+    // In the Latin pass a right-to-left table reads backwards, so the first column (purchase date) is the last date.
+    const date = (num && lastDate(num, today)) || findDate(text, today);
     if (date) {
       text = text.replace(date.match, ' ');
       if (num) num = num.replace(date.match, ' ');
     }
+    // Other full dates on the row (e.g. a currency conversion date) are not installments or amounts.
+    const FULL_DATES = new RegExp(FULL_DATE.source, 'g');
+    const hadOtherDate = !!num && FULL_DATES.test(num);
+    text = text.replace(FULL_DATES, ' ');
+    if (num) num = num.replace(FULL_DATES, ' ');
     let categoryHint: string | undefined;
     if (num || CARD_TYPE.test(text)) {
       CARD_TYPE.lastIndex = 0;
@@ -152,6 +177,8 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     const amounts = num ? [...num.matchAll(AMOUNT)].map((m) => m[0]) : textAmounts;
     const parsed = amounts.map((a) => parseAmount(a)).filter((a): a is number => a != null);
     const isDiscount = DISCOUNT.test(text);
+    // Foreign purchases list the original amount, commission and the shekel charge: the charge is the largest.
+    const isForeign = hadOtherDate || /[$€£]|USD|EUR|GBP|(?<![\d.])\d\.\d{4}(?!\d)/.test(`${num ?? ''} ${text}`);
 
     if (isDiscount && parsed.length === 1) {
       // A discount on its own line belongs to the purchase above it: keep the purchase at its net amount.
@@ -194,14 +221,16 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     if (NOISE.test(cleanMerchant(text))) continue;
 
     for (const a of textAmounts) text = text.replace(a, ' ');
-    if (num) text = text.replace(/(^|\s)[\d.,/()|\\-]+(?=\s|$)/g, ' ').replace(/(הנחה|הנחת|הטבה)[^]*$/, ' ');
+    if (num) text = text.replace(/(^|\s)([\d.,/()|\\$€£%*=-]+|[א-ת])(?=\s|$)/g, ' ').replace(/(^|\s)([\d.,/()|\\$€£%*=-]+|[א-ת])(?=\s|$)/g, ' ').replace(/(הנחה|הנחת|הטבה)[^]*$/, ' ');
     const merchant = cleanMerchant(text.replace(/₪|ש["״]ח/g, ' '));
     let amountAgorot = parsed[0];
     if (parsed.length > 1) {
       const abs = parsed.map(Math.abs);
       const big = parsed[abs.indexOf(Math.max(...abs))];
       const small = parsed[abs.indexOf(Math.min(...abs))];
-      if (isDiscount && Math.abs(small) * 2 < Math.abs(big)) {
+      if (isForeign) {
+        amountAgorot = big;
+      } else if (isDiscount && Math.abs(small) * 2 < Math.abs(big)) {
         // "purchase … discount": the charge is the purchase minus the discount.
         amountAgorot = big - Math.abs(small) * Math.sign(big);
       } else {
@@ -240,6 +269,6 @@ export function parseStatement(lines: OcrLine[], today: ISODate = todayLocal()):
     if (!d.transactionDate && (anyDated || d.merchant.length < 2)) d.suspicious ??= 'לא נמצא תאריך';
   }
 
-  if (explicitChargeDate) for (const d of drafts) d.explicitChargeDate = explicitChargeDate;
+  if (headerCharge) for (const d of drafts) d.explicitChargeDate ??= headerCharge;
   return { drafts, explicitChargeDate };
 }

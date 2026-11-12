@@ -2,7 +2,7 @@ import { db, nowIso, uid } from '../db';
 import { futureInstallmentsFrom } from '../lib/installments';
 import { findDuplicates, matchesLoan, type MatchKind } from '../lib/dedupe';
 import { merchantSimilarity, suggestCategory } from '../lib/merchant';
-import { predictChargeDate } from '../lib/billing';
+import { installmentChargeDate, predictChargeDate } from '../lib/billing';
 import { categoryFromHint } from '../lib/statementTable';
 import { loanOccurrences } from '../lib/loans';
 import { addMonths, dayInMonth, monthOf, todayLocal, type ISODate } from '../lib/dates';
@@ -43,6 +43,12 @@ export function nearBillingDay(date: ISODate, billingDay: number): boolean {
   return [-1, 0, 1].some((k) => Math.abs(t(dayInMonth(addMonths(monthOf(date), k), billingDay)) - t(date)) <= 4 * 86_400_000);
 }
 
+/** Predicted charge date of an imported row; installment N is charged N-1 months after the first charge. */
+export function rowChargeDate(transactionDate: ISODate, billingDay: number, installmentIndex?: number): ISODate {
+  const first = predictChargeDate(transactionDate, billingDay);
+  return installmentIndex && installmentIndex > 1 ? installmentChargeDate(first, billingDay, installmentIndex) : first;
+}
+
 /** Converts parser drafts into editable review rows with predicted charge dates and suggested categories. */
 export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: string): Promise<ReviewRow[]> {
   const card = await db.cards.get(cardId);
@@ -55,7 +61,7 @@ export async function draftsToRows(drafts: Draft[], imageIndex: number, cardId: 
       chargeDate = d.explicitChargeDate;
       chargeDateSource = 'explicit';
     } else if (d.transactionDate && card) {
-      chargeDate = predictChargeDate(d.transactionDate, card.billingDay);
+      chargeDate = rowChargeDate(d.transactionDate, card.billingDay, d.installmentIndex);
     }
     return {
       key: `${imageIndex}-${i}-${uid()}`,

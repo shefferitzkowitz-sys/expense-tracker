@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { predictChargeDate } from '../lib/billing';
 import { isValidDate } from '../lib/dates';
 import { parseStatement } from '../lib/ocrParser';
 import { readTableFromFile, SheetError } from '../lib/sheet';
@@ -7,7 +6,7 @@ import { parseStatementTables } from '../lib/statementTable';
 
 const SHEET_EXT = /\.(xlsx|xls|csv|txt)$/i;
 import { formatILS } from '../lib/money';
-import { annotateDuplicates, draftsToRows, rowIsValid, saveImport, type ReviewRow } from '../services/importer';
+import { annotateDuplicates, draftsToRows, rowChargeDate, rowIsValid, saveImport, type ReviewRow } from '../services/importer';
 import { recognizeImage } from '../services/ocr';
 import { AmountInput, CategorySelect, Empty, Field, IntInput } from './common';
 import type { AppData } from './useData';
@@ -100,8 +99,9 @@ export function Import({ data, goSettings }: { data: AppData; goSettings: () => 
     setRows((prev) => prev.map((r) => {
       if (r.key !== key) return r;
       const next = { ...r, ...patch };
-      if ('transactionDate' in patch && next.chargeDateSource === 'predicted' && card && isValidDate(next.transactionDate)) next.chargeDate = predictChargeDate(next.transactionDate, card.billingDay);
-      if (patch.chargeDate !== undefined && !('transactionDate' in patch)) next.chargeDateSource = 'manual';
+      const dateInputs = 'transactionDate' in patch || 'installmentIndex' in patch;
+      if (dateInputs && next.chargeDateSource === 'predicted' && card && isValidDate(next.transactionDate)) next.chargeDate = rowChargeDate(next.transactionDate, card.billingDay, next.installmentIndex);
+      if (patch.chargeDate !== undefined && !dateInputs) next.chargeDateSource = 'manual';
       return next;
     }));
   };
