@@ -57,7 +57,7 @@ export function Dashboard({ data, month, setMonth, onOpenLine, onNew }: { data: 
           {s.isPartialForecast && <span className="badge predicted">{s.isFuture ? 'תחזית חלקית' : 'חודש פתוח'}</span>}
         </div>
         <Money a={s.total} className="hero-amount" />
-        <span className="muted small">חיובים מ-{formatDate(budgetRange(month)[0])} עד {formatDate(budgetRange(month)[1])}</span>
+        <span className="muted small">הוצאות מ-{formatDate(budgetRange(month)[0])} עד {formatDate(budgetRange(month)[1])}</span>
         <div className="split">
           <button className="split-item" onClick={() => setDrill({ title: 'אשראי והוצאות', filter: (l) => counted(l) && l.kind === 'transaction' })}>
             <span className="muted">אשראי והוצאות</span>

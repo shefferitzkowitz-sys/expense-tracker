@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { setCycleEndDay } from '../lib/dates';
+import { setCycleStartDay } from '../lib/dates';
 import type { Card, Category, Loan, LoanOverride, MerchantRule, Transaction } from '../lib/types';
 
 export interface AppData {
@@ -11,7 +11,7 @@ export interface AppData {
   loans: Loan[];
   overrides: LoanOverride[];
   rules: MerchantRule[];
-  cycleEndDay: number;
+  cycleStartDay: number;
 }
 
 export function useData(): AppData {
@@ -24,10 +24,10 @@ export function useData(): AppData {
       db.loanOverrides.toArray(),
       db.merchantRules.toArray(),
     ]);
-    const setting = await db.settings.get('cycleEndDay');
-    const cycleEndDay = typeof setting?.value === 'number' ? setting.value : 10;
-    setCycleEndDay(cycleEndDay);
-    return { cards, categories, transactions, loans, overrides, rules, cycleEndDay };
+    const setting = await db.settings.get('cycleStartDay');
+    const cycleStartDay = typeof setting?.value === 'number' ? setting.value : 10;
+    setCycleStartDay(cycleStartDay);
+    return { cards, categories, transactions, loans, overrides, rules, cycleStartDay };
   }, []);
-  return r ? { ready: true, ...r } : { ready: false, cards: [], categories: [], transactions: [], loans: [], overrides: [], rules: [], cycleEndDay: 10 };
+  return r ? { ready: true, ...r } : { ready: false, cards: [], categories: [], transactions: [], loans: [], overrides: [], rules: [], cycleStartDay: 10 };
 }

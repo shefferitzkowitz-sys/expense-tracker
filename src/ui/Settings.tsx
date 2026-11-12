@@ -58,26 +58,26 @@ export function Settings({ data }: { data: AppData }) {
 }
 
 function CycleSection({ data }: { data: AppData }) {
-  const [day, setDay] = useState<number | null>(data.cycleEndDay);
+  const [day, setDay] = useState<number | null>(data.cycleStartDay);
   const [saved, setSaved] = useState(false);
-  useEffect(() => setDay(data.cycleEndDay), [data.cycleEndDay]);
-  const valid = day != null && day >= 0 && day <= 31;
+  useEffect(() => setDay(data.cycleStartDay), [data.cycleStartDay]);
+  const valid = day != null && day >= 0 && day <= 28;
   const save = async () => {
     if (!valid) return;
-    await db.settings.put({ key: 'cycleEndDay', value: day });
+    await db.settings.put({ key: 'cycleStartDay', value: day });
     setSaved(true);
   };
-  const example = valid && day! > 0
-    ? `לדוגמה: נובמבר = חיובים מ-${day! >= 31 ? '1/11' : `${day! + 1}/10`} עד ${Math.min(day!, 30)}/11.`
-    : 'חודש קלנדרי רגיל (1 עד סוף החודש).';
+  const example = valid && day! > 1
+    ? `לדוגמה: דצמבר = הוצאות מ-${day}/11 עד ${day! - 1}/12 (מה שיורד בחיוב האשראי של ${day}/12).`
+    : 'חודש קלנדרי רגיל.';
   return (
     <section className="card">
       <div className="section-head"><h3>חודש בדשבורד</h3></div>
-      <Field label="החודש מסתיים ביום" htmlFor="cycle-day" hint={`${example} 0 = חודש קלנדרי.`}>
-        <IntInput id="cycle-day" value={day} onChange={(v) => { setDay(v); setSaved(false); }} max={31} placeholder="10" />
+      <Field label="החודש מתחיל ביום (לרוב יום החיוב של האשראי)" htmlFor="cycle-day" hint={`${example} 0 = חודש קלנדרי.`}>
+        <IntInput id="cycle-day" value={day} onChange={(v) => { setDay(v); setSaved(false); }} max={28} placeholder="10" />
       </Field>
       <div className="row-actions">
-        <button className="btn small" onClick={save} disabled={!valid || day === data.cycleEndDay}>שמירה</button>
+        <button className="btn small" onClick={save} disabled={!valid || day === data.cycleStartDay}>שמירה</button>
         {saved && <span className="muted">נשמר</span>}
       </div>
     </section>

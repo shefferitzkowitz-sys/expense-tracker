@@ -1,6 +1,11 @@
-import { addMonths, budgetMonth, compareMonths, todayLocal, type ISODate, type MonthKey } from './dates';
+import { addMonths, budgetMonth, compareMonths, monthOf, todayLocal, type ISODate, type MonthKey } from './dates';
 import { loanOccurrences } from './loans';
 import { UNCATEGORIZED, type ChargeLine, type Loan, type LoanOverride, type Transaction } from './types';
+
+/** Month a charge line is counted in: card charges by the month they are charged; everything else by budget month. */
+export function lineMonth(l: Pick<ChargeLine, 'kind' | 'sourceType' | 'chargeDate'>): MonthKey {
+  return l.kind === 'transaction' && l.sourceType === 'card' ? monthOf(l.chargeDate) : budgetMonth(l.chargeDate);
+}
 
 export function transactionLine(t: Transaction): ChargeLine {
   return {
@@ -27,9 +32,9 @@ export function chargeLines(
   to: MonthKey,
   today: ISODate = todayLocal(),
 ): ChargeLine[] {
-  const inRange = (d: ISODate) => compareMonths(budgetMonth(d), from) >= 0 && compareMonths(budgetMonth(d), to) <= 0;
-  const lines = transactions.filter((t) => inRange(t.chargeDate)).map(transactionLine);
-  for (const loan of loans) lines.push(...loanOccurrences(loan, overrides, addMonths(from, -1), to, today).filter((l) => inRange(l.chargeDate)));
+  const inRange = (l: ChargeLine) => compareMonths(lineMonth(l), from) >= 0 && compareMonths(lineMonth(l), to) <= 0;
+  const lines = transactions.map(transactionLine).filter(inRange);
+  for (const loan of loans) lines.push(...loanOccurrences(loan, overrides, addMonths(from, -1), to, today).filter(inRange));
   return lines.sort((a, b) => a.chargeDate.localeCompare(b.chargeDate));
 }
 
@@ -63,7 +68,7 @@ export function summarizeMonth(lines: ChargeLine[], month: MonthKey, today: ISOD
     count: 0,
   };
   for (const l of lines) {
-    if (budgetMonth(l.chargeDate) !== month || l.status === 'excluded') continue;
+    if (lineMonth(l) !== month || l.status === 'excluded') continue;
     s.total += l.amountAgorot;
     s.count++;
     if (l.kind === 'loan') s.loans += l.amountAgorot;

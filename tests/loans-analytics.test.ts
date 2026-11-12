@@ -56,27 +56,28 @@ describe('month summary (spec §10)', () => {
   });
 });
 
-import { budgetMonth, budgetRange, setCycleEndDay } from '../src/lib/dates';
-describe('budget month (cycle ends on the 10th)', () => {
-  it('a charge on the 10th belongs to that month; after the 10th to the next', () => {
-    setCycleEndDay(10);
-    expect(budgetMonth('2026-11-10')).toBe('2026-11');
-    expect(budgetMonth('2026-11-11')).toBe('2026-12');
-    expect(budgetMonth('2026-11-15')).toBe('2026-12');
+import { budgetMonth, budgetRange, setCycleStartDay } from '../src/lib/dates';
+describe('budget month follows the card cycle (start day 10)', () => {
+  it('10/11 through 9/12 is December', () => {
+    setCycleStartDay(10);
+    expect(budgetMonth('2026-11-09')).toBe('2026-11');
+    expect(budgetMonth('2026-11-10')).toBe('2026-12');
+    expect(budgetMonth('2026-12-09')).toBe('2026-12');
     expect(budgetMonth('2026-12-31')).toBe('2027-01');
-    expect(budgetRange('2026-11')).toEqual(['2026-10-11', '2026-11-10']);
+    expect(budgetRange('2026-12')).toEqual(['2026-11-10', '2026-12-09']);
   });
-  it('a loan charged on the 15th shows in the next month', () => {
-    setCycleEndDay(10);
-    const loan = { id: 'L', name: 'הלוואה', monthlyAmountAgorot: 100000, billingDay: 15, startDate: '2026-01-01', active: true, createdAt: '', updatedAt: '' };
-    const nov = chargeLines([], [loan as never], [], '2026-11', '2026-11', '2026-11-12');
-    const dec = chargeLines([], [loan as never], [], '2026-12', '2026-12', '2026-11-12');
-    expect(nov.map((l) => l.chargeDate)).toEqual(['2026-10-15']);
-    expect(dec.map((l) => l.chargeDate)).toEqual(['2026-11-15']);
+  it('loans on the 15th move to the next month; the card charge on the 10th stays in its month', () => {
+    setCycleStartDay(10);
+    const loan = { id: 'L', name: 'הלוואה', monthlyAmountAgorot: 100000, billingDay: 15, startDate: '2026-01-01', active: true };
+    const card = tx({ chargeDate: '2026-11-10' });
+    const nov = chargeLines([card], [loan as never], [], '2026-11', '2026-11', '2026-11-12');
+    const dec = chargeLines([card], [loan as never], [], '2026-12', '2026-12', '2026-11-12');
+    expect(nov.map((l) => [l.kind, l.chargeDate])).toEqual([['loan', '2026-10-15'], ['transaction', '2026-11-10']]);
+    expect(dec.map((l) => [l.kind, l.chargeDate])).toEqual([['loan', '2026-11-15']]);
   });
   it('0 means calendar months', () => {
-    setCycleEndDay(0);
+    setCycleStartDay(0);
     expect(budgetMonth('2026-11-15')).toBe('2026-11');
-    setCycleEndDay(10);
+    setCycleStartDay(10);
   });
 });

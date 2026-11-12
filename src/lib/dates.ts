@@ -84,28 +84,25 @@ export function parseDisplayDate(text: string): ISODate | null {
 }
 
 /**
- * Budget month: month X holds every charge from the day after the cycle end day in month X-1 up to the
- * cycle end day in month X (e.g. end day 10: November = 11/10–10/11). 0 means plain calendar months.
+ * Budget month, following the card billing cycle (start day 10): month X holds everything dated from the
+ * 10th of month X-1 through the 9th of month X, i.e. what the card charges on the 10th of X. A card
+ * charge itself (dated on the billing day) belongs to the calendar month it is charged in; see lineMonth.
+ * 0 means plain calendar months.
  */
-let cycleEndDay = 10;
-export function setCycleEndDay(day: number): void {
-  cycleEndDay = Number.isInteger(day) && day >= 0 && day <= 31 ? day : 10;
+let cycleStartDay = 10;
+export function setCycleStartDay(day: number): void {
+  cycleStartDay = Number.isInteger(day) && day >= 0 && day <= 28 ? day : 10;
 }
-export function getCycleEndDay(): number {
-  return cycleEndDay;
+export function getCycleStartDay(): number {
+  return cycleStartDay;
 }
 export function budgetMonth(date: ISODate): MonthKey {
   const m = monthOf(date);
-  if (cycleEndDay === 0) return m;
-  const [y, mo, d] = parts(date);
-  return d > Math.min(cycleEndDay, daysInMonth(y, mo)) ? addMonths(m, 1) : m;
+  if (cycleStartDay <= 1) return m;
+  return parts(date)[2] >= cycleStartDay ? addMonths(m, 1) : m;
 }
-/** First and last charge dates of a budget month. */
+/** First and last dates of a budget month. */
 export function budgetRange(month: MonthKey): [ISODate, ISODate] {
-  if (cycleEndDay === 0) return [dayInMonth(month, 1), dayInMonth(month, 31)];
-  const prev = addMonths(month, -1);
-  const [py, pm] = prev.split('-').map(Number);
-  const prevEnd = Math.min(cycleEndDay, daysInMonth(py, pm));
-  const start = prevEnd >= daysInMonth(py, pm) ? dayInMonth(month, 1) : makeDate(py, pm, prevEnd + 1);
-  return [start, dayInMonth(month, cycleEndDay)];
+  if (cycleStartDay <= 1) return [dayInMonth(month, 1), dayInMonth(month, 31)];
+  return [dayInMonth(addMonths(month, -1), cycleStartDay), dayInMonth(month, cycleStartDay - 1)];
 }
