@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { ensureSeed } from './db';
-import { monthOf, todayLocal, type MonthKey } from './lib/dates';
+import { budgetMonth, todayLocal, type MonthKey } from './lib/dates';
 import type { ChargeLine } from './lib/types';
 import { Analysis } from './ui/Analysis';
 import { Dashboard } from './ui/Dashboard';
@@ -28,7 +28,7 @@ function readHash(): Tab {
 export default function App() {
   const data = useData();
   const [tab, setTab] = useState<Tab>(readHash);
-  const [month, setMonth] = useState<MonthKey>(monthOf(todayLocal()));
+  const [month, setMonth] = useState<MonthKey>(budgetMonth(todayLocal()));
   const [openLine, setOpenLine] = useState<ChargeLine | null>(null);
   const [newTx, setNewTx] = useState(false);
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW();

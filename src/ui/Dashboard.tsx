@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { chargeLines, summarizeMonth } from '../lib/analytics';
-import { formatDate, monthLabel, type MonthKey } from '../lib/dates';
+import { budgetRange, formatDate, monthLabel, type MonthKey } from '../lib/dates';
 import { PAYMENT_METHODS, UNCATEGORIZED, type ChargeLine } from '../lib/types';
 import { Bars, categoryName, Empty, Money, MonthPicker, Sheet, sourceName, StatusBadge } from './common';
 import type { AppData } from './useData';
@@ -57,6 +57,7 @@ export function Dashboard({ data, month, setMonth, onOpenLine, onNew }: { data: 
           {s.isPartialForecast && <span className="badge predicted">{s.isFuture ? 'תחזית חלקית' : 'חודש פתוח'}</span>}
         </div>
         <Money a={s.total} className="hero-amount" />
+        <span className="muted small">חיובים מ-{formatDate(budgetRange(month)[0])} עד {formatDate(budgetRange(month)[1])}</span>
         <div className="split">
           <button className="split-item" onClick={() => setDrill({ title: 'אשראי והוצאות', filter: (l) => counted(l) && l.kind === 'transaction' })}>
             <span className="muted">אשראי והוצאות</span>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { chargeLines, summarizeMonth } from '../lib/analytics';
-import { addMonths, monthLabel, monthOf, monthsBetween, shortMonthLabel, todayLocal, type MonthKey } from '../lib/dates';
+import { addMonths, budgetMonth, monthLabel, monthsBetween, shortMonthLabel, todayLocal, type MonthKey } from '../lib/dates';
 import { formatILS } from '../lib/money';
 import { UNCATEGORIZED, type ChargeLine } from '../lib/types';
 import { categoryName, Money, sourceName } from './common';
@@ -9,7 +9,7 @@ import type { AppData } from './useData';
 type SourceFilter = 'all' | 'loan' | 'manual' | string;
 
 export function Analysis({ data }: { data: AppData }) {
-  const thisMonth = monthOf(todayLocal());
+  const thisMonth = budgetMonth(todayLocal());
   const [back, setBack] = useState(6);
   const [source, setSource] = useState<SourceFilter>('all');
   const [category, setCategory] = useState<string>('all');

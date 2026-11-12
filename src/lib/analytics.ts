@@ -1,4 +1,4 @@
-import { compareMonths, monthOf, todayLocal, type ISODate, type MonthKey } from './dates';
+import { addMonths, budgetMonth, compareMonths, todayLocal, type ISODate, type MonthKey } from './dates';
 import { loanOccurrences } from './loans';
 import { UNCATEGORIZED, type ChargeLine, type Loan, type LoanOverride, type Transaction } from './types';
 
@@ -27,9 +27,9 @@ export function chargeLines(
   to: MonthKey,
   today: ISODate = todayLocal(),
 ): ChargeLine[] {
-  const inRange = (d: ISODate) => compareMonths(monthOf(d), from) >= 0 && compareMonths(monthOf(d), to) <= 0;
+  const inRange = (d: ISODate) => compareMonths(budgetMonth(d), from) >= 0 && compareMonths(budgetMonth(d), to) <= 0;
   const lines = transactions.filter((t) => inRange(t.chargeDate)).map(transactionLine);
-  for (const loan of loans) lines.push(...loanOccurrences(loan, overrides, from, to, today).filter((l) => inRange(l.chargeDate)));
+  for (const loan of loans) lines.push(...loanOccurrences(loan, overrides, addMonths(from, -1), to, today).filter((l) => inRange(l.chargeDate)));
   return lines.sort((a, b) => a.chargeDate.localeCompare(b.chargeDate));
 }
 
@@ -58,12 +58,12 @@ export function summarizeMonth(lines: ChargeLine[], month: MonthKey, today: ISOD
     predicted: 0,
     byCategory: new Map(),
     bySource: new Map(),
-    isFuture: compareMonths(month, monthOf(today)) > 0,
-    isPartialForecast: compareMonths(month, monthOf(today)) >= 0,
+    isFuture: compareMonths(month, budgetMonth(today)) > 0,
+    isPartialForecast: compareMonths(month, budgetMonth(today)) >= 0,
     count: 0,
   };
   for (const l of lines) {
-    if (monthOf(l.chargeDate) !== month || l.status === 'excluded') continue;
+    if (budgetMonth(l.chargeDate) !== month || l.status === 'excluded') continue;
     s.total += l.amountAgorot;
     s.count++;
     if (l.kind === 'loan') s.loans += l.amountAgorot;

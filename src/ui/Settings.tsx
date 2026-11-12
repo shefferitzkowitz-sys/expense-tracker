@@ -45,6 +45,7 @@ export function Settings({ data }: { data: AppData }) {
         </ul>
       </section>
 
+      <CycleSection data={data} />
       <RulesSection data={data} />
       <BackupSection />
       <StorageSection />
@@ -53,6 +54,33 @@ export function Settings({ data }: { data: AppData }) {
       {editLoan && <LoanForm data={data} loan={editLoan === 'new' ? undefined : editLoan} onClose={() => setEditLoan(null)} />}
       {editCat && <CategoryForm data={data} category={editCat === 'new' ? undefined : editCat} onClose={() => setEditCat(null)} />}
     </div>
+  );
+}
+
+function CycleSection({ data }: { data: AppData }) {
+  const [day, setDay] = useState<number | null>(data.cycleEndDay);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setDay(data.cycleEndDay), [data.cycleEndDay]);
+  const valid = day != null && day >= 0 && day <= 31;
+  const save = async () => {
+    if (!valid) return;
+    await db.settings.put({ key: 'cycleEndDay', value: day });
+    setSaved(true);
+  };
+  const example = valid && day! > 0
+    ? `לדוגמה: נובמבר = חיובים מ-${day! >= 31 ? '1/11' : `${day! + 1}/10`} עד ${Math.min(day!, 30)}/11.`
+    : 'חודש קלנדרי רגיל (1 עד סוף החודש).';
+  return (
+    <section className="card">
+      <div className="section-head"><h3>חודש בדשבורד</h3></div>
+      <Field label="החודש מסתיים ביום" htmlFor="cycle-day" hint={`${example} 0 = חודש קלנדרי.`}>
+        <IntInput id="cycle-day" value={day} onChange={(v) => { setDay(v); setSaved(false); }} max={31} placeholder="10" />
+      </Field>
+      <div className="row-actions">
+        <button className="btn small" onClick={save} disabled={!valid || day === data.cycleEndDay}>שמירה</button>
+        {saved && <span className="muted">נשמר</span>}
+      </div>
+    </section>
   );
 }
 
